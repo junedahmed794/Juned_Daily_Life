@@ -26,7 +26,7 @@ const CATS = {
   in: ['Salary', 'Side income', 'Gift', 'Other'],
 };
 const CURRENCIES = ['USD', 'EUR', 'GBP', 'INR', 'PKR', 'BDT', 'AED', 'SAR', 'CAD', 'AUD', 'JPY', 'NGN'];
-const TABS = { today: 'Today', tasks: 'Tasks', habits: 'Habits', money: 'Money', journal: 'Journal' };
+const TABS = { today: 'Today', tasks: 'Tasks', habits: 'Habits', money: 'Money', office: 'Office', journal: 'Journal' };
 
 function fmtDate(k) {
   const t = today();
@@ -51,14 +51,24 @@ function guessCurrency() {
 }
 
 // ---------- state ----------
-const defaults = () => ({ tasks: [], habits: [], expenses: [], journal: {}, settings: { currency: guessCurrency() } });
+const defaults = () => ({
+  tasks: [], habits: [], expenses: [], journal: {},
+  office: { shifts: [], daysOff: [], tasks: [], meetings: [] },
+  settings: { currency: guessCurrency(), workHours: 8 },
+});
+
+// Fill in anything missing from older saves or backups
+const hydrate = data => ({
+  ...defaults(), ...data,
+  settings: { ...defaults().settings, ...(data.settings || {}) },
+  office: { ...defaults().office, ...(data.office || {}) },
+});
 
 function load() {
   try {
     const raw = localStorage.getItem(KEY);
     if (raw) {
-      const data = JSON.parse(raw);
-      return { ...defaults(), ...data, settings: { ...defaults().settings, ...(data.settings || {}) } };
+      return hydrate(JSON.parse(raw));
     }
   } catch { /* fall through to defaults */ }
   return defaults();
@@ -70,7 +80,7 @@ function save() {
 }
 
 let state = load();
-const ui = { tab: 'today', month: today().slice(0, 7), jdate: today(), day: today() };
+const ui = { tab: 'today', month: today().slice(0, 7), jdate: today(), day: today(), office: 'hours' };
 try { const t = localStorage.getItem(KEY + ':tab'); if (TABS[t]) ui.tab = t; } catch { /* ignore */ }
 
 // ---------- tasks ----------
@@ -177,6 +187,173 @@ function parseAmount(v) {
   return Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : null;
 }
 
+// ---------- office ----------
+const PRIORITY = { high: { label: 'High', rank: 0 }, med: { label: 'Medium', rank: 1 }, low: { label: 'Low', rank: 2 } };
+const LEAVE = ['Annual leave', 'Sick', 'Public holiday', 'Day off'];
+const fmtTime = ms => new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+function fmtDur(min) {
+  min = Math.max(0, Math.round(min));
+  const h = Math.floor(min / 60), m = min % 60;
+  return h ? `${h}h ${pad(m)}m` : `${m}m`;
+}
+const shiftMin = sh => Math.max(0, ((sh.end || Date.now()) - sh.start) / 6e4 - (sh.breakMin || 0));
+const workMin = k => state.office.shifts.filter(sh => sh.date === k).reduce((t, sh) => t + shiftMin(sh), 0);
+const openShift = () => state.office.shifts.find(sh => !sh.end);
+const dayOff = k => state.office.daysOff.find(d => d.date === k);
+const targetMin = () => (Number(state.settings.workHours) || 8) * 60;
+const atTime = (k, hm) => { const [h, m] = hm.split(':').map(Number); const d = parseKey(k); d.setHours(h, m, 0, 0); return d.getTime(); };
+
+function officeWeek(ws) {
+  const we = addDays(ws, 6);
+  const inWeek = k => !!k && k >= ws && k <= we;
+  const perDay = Array.from({ length: 7 }, (_, i) => addDays(ws, i)).map(d => ({ date: d, min: workMin(d), off: dayOff(d) }));
+  return {
+    perDay,
+    total: perDay.reduce((t, d) => t + d.min, 0),
+    overtime: perDay.reduce((t, d) => t + Math.max(0, d.min - targetMin()), 0),
+    daysWorked: perDay.filter(d => d.min > 0).length,
+    daysOff: perDay.filter(d => d.off).length,
+    tasksDone: state.office.tasks.filter(x => x.done && inWeek(x.doneAt)).length,
+    meetings: state.office.meetings.filter(m => inWeek(m.date)).length,
+  };
+}
+
+function officeHours() {
+  const k = today(), open = openShift(), w = officeWeek(weekStart(k)), todayMin = workMin(k);
+  const recent = [...state.office.shifts].sort((a, b) => b.start - a.start).slice(0, 10);
+  const offs = [...state.office.daysOff].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 10);
+  return `
+  <div class="card clock">
+    ${open
+      ? `<div class="meta">Clocked in at ${fmtTime(open.start)}</div>
+         <div class="big">${fmtDur(shiftMin(open))}</div>
+         <button class="btn danger-fill block" data-action="clock-out">Clock out</button>`
+      : `<div class="meta">${todayMin ? `Worked today: ${fmtDur(todayMin)}` : 'Not clocked in'}</div>
+         <button class="btn primary block" data-action="clock-in">Clock in</button>`}
+    <p class="meta hint">Taking a break? Clock out, then clock in again when you're back.</p>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><b>${fmtDur(todayMin)}</b><span>Today</span></div>
+    <div class="stat"><b>${fmtDur(w.total)}</b><span>This week</span></div>
+    <div class="stat"><b>${fmtDur(w.overtime)}</b><span>Overtime</span></div>
+  </div>
+
+  <h2 class="sec">This week</h2>
+  <div class="card"><ul class="list">
+    ${w.perDay.filter(d => d.date <= k).reverse().map(d => `<li class="row">
+      <div class="grow"><div class="row-title">${fmtDate(d.date)}</div>${d.off ? `<div class="meta">🌴 ${esc(d.off.type)}</div>` : ''}</div>
+      <span class="amt">${d.min ? fmtDur(d.min) : '—'}</span></li>`).join('')}
+  </ul></div>
+
+  <details class="card">
+    <summary>➕ Add hours manually</summary>
+    <form data-form="shift">
+      <div class="two">
+        <label class="lbl">Date<input type="date" name="date" value="${k}" required></label>
+        <label class="lbl">Break (minutes)<input type="number" name="break" min="0" step="5" inputmode="numeric" placeholder="0"></label>
+        <label class="lbl">Start<input type="time" name="start" value="09:00" required></label>
+        <label class="lbl">End<input type="time" name="end" value="17:00" required></label>
+      </div>
+      <button class="btn primary block" style="margin-top:12px">Add hours</button>
+    </form>
+  </details>
+
+  <details class="card">
+    <summary>🌴 Log a day off</summary>
+    <form data-form="dayoff">
+      <div class="two">
+        <label class="lbl">Date<input type="date" name="date" value="${k}" required></label>
+        <label class="lbl">Type<select name="type">${LEAVE.map(l => `<option>${l}</option>`).join('')}</select></label>
+      </div>
+      <button class="btn primary block" style="margin-top:12px">Save day off</button>
+    </form>
+  </details>
+
+  ${recent.length ? `<h2 class="sec">Recent entries</h2><div class="card"><ul class="list">${recent.map(sh => `<li class="row">
+    <div class="grow"><div class="row-title">${fmtDate(sh.date)}</div>
+      <div class="meta">${fmtTime(sh.start)} – ${sh.end ? fmtTime(sh.end) : 'now'}${sh.breakMin ? ` · ${sh.breakMin}m break` : ''}</div></div>
+    <span class="amt">${fmtDur(shiftMin(sh))}</span>
+    <button class="icon-btn" data-action="del-shift" data-id="${sh.id}" aria-label="Delete entry">×</button></li>`).join('')}</ul></div>` : ''}
+
+  ${offs.length ? `<h2 class="sec">Days off</h2><div class="card"><ul class="list">${offs.map(o => `<li class="row">
+    <div class="grow"><div class="row-title">${fmtDate(o.date)}</div><div class="meta">🌴 ${esc(o.type)}</div></div>
+    <button class="icon-btn" data-action="del-dayoff" data-id="${o.id}" aria-label="Delete day off">×</button></li>`).join('')}</ul></div>` : ''}`;
+}
+
+function officeTaskRow(t) {
+  const k = today();
+  let due = '';
+  if (t.done && t.doneAt) due = `Done ${fmtDate(t.doneAt).toLowerCase()}`;
+  else if (t.due) due = t.due < k ? `<span class="overdue">Overdue · ${fmtDate(t.due)}</span>` : `Due ${fmtDate(t.due).toLowerCase()}`;
+  const p = PRIORITY[t.priority] || PRIORITY.med;
+  return `<li class="row ${t.done ? 'done' : ''}">
+    <button class="check ${t.done ? 'on' : ''}" data-action="toggle-otask" data-id="${t.id}"
+      aria-label="${t.done ? 'Mark not done' : 'Mark done'}: ${esc(t.title)}"></button>
+    <div class="grow"><div class="row-title">${esc(t.title)}</div>
+      <div class="meta"><span class="pri pri-${t.priority}">${p.label}</span>${due ? ` ${due}` : ''}</div></div>
+    <button class="icon-btn" data-action="del-otask" data-id="${t.id}" aria-label="Delete task">×</button>
+  </li>`;
+}
+
+function officeTasks() {
+  const rank = t => (PRIORITY[t.priority] || PRIORITY.med).rank;
+  const open = state.office.tasks.filter(t => !t.done)
+    .sort((a, b) => rank(a) - rank(b) || (a.due || '9999').localeCompare(b.due || '9999') || a.created - b.created);
+  const done = state.office.tasks.filter(t => t.done)
+    .sort((a, b) => (b.doneAt || '').localeCompare(a.doneAt || '')).slice(0, 15);
+  return `
+  <form class="card add" data-form="otask">
+    <input name="title" placeholder="Add a work task…" required autocomplete="off" aria-label="New work task">
+    <div class="add-row">
+      <select name="priority" aria-label="Priority">
+        <option value="high">High priority</option><option value="med" selected>Medium</option><option value="low">Low</option>
+      </select>
+      <input type="date" name="due" aria-label="Deadline (optional)">
+      <button class="btn primary">Add</button>
+    </div>
+  </form>
+  <h2 class="sec">To do</h2>
+  <div class="card"><ul class="list">${open.length ? open.map(officeTaskRow).join('') : '<li class="empty">No open work tasks 🎉</li>'}</ul></div>
+  ${done.length ? `<h2 class="sec">Completed</h2><div class="card"><ul class="list">${done.map(officeTaskRow).join('')}</ul></div>` : ''}`;
+}
+
+function officeMeetings() {
+  const ms = [...state.office.meetings].sort((a, b) =>
+    b.date.localeCompare(a.date) || (b.time || '').localeCompare(a.time || '') || b.created - a.created);
+  const pending = ms.flatMap(m => m.actions.filter(a => !a.done).map(a => ({ m, a })));
+  const actionRow = (m, a, showMeeting) => `<li class="row ${a.done ? 'done' : ''}">
+    <button class="check ${a.done ? 'on' : ''}" data-action="toggle-action" data-id="${m.id}" data-aid="${a.id}"
+      aria-label="${a.done ? 'Mark not done' : 'Mark done'}: ${esc(a.text)}"></button>
+    <div class="grow"><div class="row-title">${esc(a.text)}</div>${showMeeting ? `<div class="meta">${esc(m.title)} · ${fmtDate(m.date)}</div>` : ''}</div>
+  </li>`;
+  return `
+  <details class="card" ${ms.length ? '' : 'open'}>
+    <summary>➕ New meeting</summary>
+    <form data-form="meeting">
+      <label class="lbl">Title<input name="title" placeholder="e.g. Weekly team sync" required autocomplete="off"></label>
+      <div class="two">
+        <label class="lbl">Date<input type="date" name="date" value="${today()}" required></label>
+        <label class="lbl">Time<input type="time" name="time"></label>
+      </div>
+      <label class="lbl">Notes<textarea name="notes" rows="4" placeholder="What was discussed? Decisions made?"></textarea></label>
+      <label class="lbl">Action items <span class="meta">(one per line)</span><textarea name="actions" rows="3" placeholder="Send report to Sara&#10;Book follow-up for Friday"></textarea></label>
+      <button class="btn primary block" style="margin-top:12px">Save meeting</button>
+    </form>
+  </details>
+
+  ${pending.length ? `<h2 class="sec">Open action items</h2>
+    <div class="card"><ul class="list">${pending.map(({ m, a }) => actionRow(m, a, true)).join('')}</ul></div>` : ''}
+
+  ${ms.length ? `<h2 class="sec">Meetings</h2>${ms.map(m => `<div class="card">
+    <div class="row-title"><strong>${esc(m.title)}</strong></div>
+    <div class="meta">${fmtDate(m.date)}${m.time ? ` · ${m.time}` : ''}</div>
+    ${m.notes ? `<p class="note">${esc(m.notes)}</p>` : ''}
+    ${m.actions.length ? `<ul class="list">${m.actions.map(a => actionRow(m, a, false)).join('')}</ul>` : ''}
+    <button class="link danger" data-action="del-meeting" data-id="${m.id}">Delete meeting</button>
+  </div>`).join('')}` : '<p class="empty" style="text-align:center">No meetings logged yet.</p>'}`;
+}
+
 // ---------- weekly report (Excel) ----------
 const weekStart = k => addDays(k, -((parseKey(k).getDay() + 6) % 7));   // weeks run Monday–Sunday
 const createdKey = x => dateKey(new Date(x.created || 0));
@@ -225,6 +402,7 @@ function weekStats(ws) {
     habits: state.habits.filter(h => h.log[d]).length,
     habitTotal: state.habits.filter(h => d >= createdKey(h) || h.log[d]).length,
     spent: sum(outs.filter(e => e.date === d)),
+    work: workMin(d),
     mood: state.journal[d]?.mood,
     sleep: state.journal[d]?.sleep,
   }));
@@ -236,6 +414,7 @@ function weekStats(ws) {
     habitPct: hPossible ? hDone / hPossible : null,
     journalDays: entries.length,
     avgMood: avg(nums('mood')), avgSleep: avg(nums('sleep')), avgEnergy: avg(nums('energy')),
+    office: officeWeek(ws),
   };
 }
 
@@ -244,6 +423,8 @@ function firstDataDay() {
     ...state.tasks.map(createdKey), ...state.habits.map(createdKey),
     ...state.habits.flatMap(h => Object.keys(h.log)),
     ...state.expenses.map(e => e.date), ...Object.keys(state.journal),
+    ...state.office.shifts.map(sh => sh.date), ...state.office.daysOff.map(d => d.date),
+    ...state.office.tasks.map(createdKey), ...state.office.meetings.map(m => m.date),
   ].filter(Boolean).sort();
   return keys[0] || today();
 }
@@ -286,6 +467,14 @@ function buildWeeklyReport(ws) {
     ['Average sleep (hours)', D1(s.avgSleep)],
     ['Average energy (1–5)', D1(s.avgEnergy)],
     [],
+    [H('Office'), H('')],
+    ['Hours worked', D1(s.office.total / 60)],
+    ['Overtime (hours)', D1(s.office.overtime / 60)],
+    ['Days worked', s.office.daysWorked],
+    ['Days off', s.office.daysOff],
+    ['Work tasks completed', s.office.tasksDone],
+    ['Meetings', s.office.meetings],
+    [],
   ];
   if (s.habits.length) {
     rows.push([H('Habit'), H('Days done'), H('Out of'), H('Completion'), H('Current streak')]);
@@ -297,16 +486,18 @@ function buildWeeklyReport(ws) {
     s.cats.forEach(([c, v]) => rows.push([c, M(v), P(s.spent ? v / s.spent : null)]));
     rows.push([]);
   }
-  rows.push([H('Day'), H('Tasks done'), H('Habits done'), H('Spent'), H('Mood'), H('Sleep (h)')]);
+  rows.push([H('Day'), H('Tasks done'), H('Habits done'), H('Spent'), H('Mood'), H('Sleep (h)'), H('Work (h)')]);
   s.daily.forEach(d => rows.push([
     parseKey(d.date).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' }),
     d.tasks, d.habitTotal ? `${d.habits} of ${d.habitTotal}` : '—', M(d.spent),
     d.mood ? `${d.mood} ${MOODS[d.mood - 1]}` : '—', typeof d.sleep === 'number' ? d.sleep : '—',
+    d.work ? D1(d.work / 60) : '—',
   ]));
 
   // Weekly Tracker: one row per week, from the first week with data up to this one
   const tracker = [[H('Week starting'), H('Week ending'), H('Tasks done'), H('Routines'), H('Habits'),
-    H('Spent'), H('Income'), H('Net'), H('Journal days'), H('Avg mood'), H('Avg sleep')]];
+    H('Spent'), H('Income'), H('Net'), H('Journal days'), H('Avg mood'), H('Avg sleep'),
+    H('Work hours'), H('Overtime'), H('Work tasks'), H('Meetings')]];
   const lastWeek = weekStart(today());
   for (let w = weekStart(firstDataDay()); w <= lastWeek; w = addDays(w, 7)) {
     const x = weekStats(w);
@@ -314,12 +505,13 @@ function buildWeeklyReport(ws) {
       { v: excelDate(x.ws), s: S.date }, { v: excelDate(x.we), s: S.date },
       x.tasksDone, P(x.routinePct), P(x.habitPct),
       M(x.spent), M(x.income), M(x.net), x.journalDays, D1(x.avgMood), D1(x.avgSleep),
+      D1(x.office.total / 60), D1(x.office.overtime / 60), x.office.tasksDone, x.office.meetings,
     ]);
   }
 
   return makeXlsx([
-    { name: 'This Week', rows, widths: [26, 14, 12, 12, 15, 11] },
-    { name: 'Weekly Tracker', rows: tracker, widths: [15, 15, 11, 11, 10, 12, 12, 12, 13, 10, 10], freeze: 1 },
+    { name: 'This Week', rows, widths: [26, 14, 12, 12, 15, 11, 10] },
+    { name: 'Weekly Tracker', rows: tracker, widths: [15, 15, 11, 11, 10, 12, 12, 12, 13, 10, 10, 11, 10, 11, 10], freeze: 1 },
   ], { moneyFormat: moneyFormat() });
 }
 
@@ -575,6 +767,14 @@ views.journal = () => {
   }).join('')}</div>` : ''}`;
 };
 
+views.office = () => {
+  const subs = { hours: '⏱ Hours', tasks: '✅ Tasks', meetings: '🗓 Meetings' };
+  const body = { hours: officeHours, tasks: officeTasks, meetings: officeMeetings }[ui.office]();
+  return `<div class="subtabs" role="tablist">${Object.entries(subs).map(([key, label]) =>
+    `<button role="tab" class="${ui.office === key ? 'on' : ''}" aria-selected="${ui.office === key}"
+      data-action="office-view" data-view="${key}">${label}</button>`).join('')}</div>${body}`;
+};
+
 // ---------- render ----------
 function render() {
   ui.day = today();
@@ -606,13 +806,15 @@ function toast(msg, undo) {
   toastTimer = setTimeout(() => el.classList.remove('show'), 4000);
 }
 
+const listAt = path => path.split('.').reduce((o, k) => o[k], state);
+
 function removeWithUndo(list, id, label) {
-  const arr = state[list];
+  const arr = listAt(list);
   const i = arr.findIndex(x => x.id === id);
   if (i < 0) return;
   const [item] = arr.splice(i, 1);
   save(); render();
-  toast(`${label} deleted`, () => { state[list].splice(i, 0, item); save(); render(); });
+  toast(`${label} deleted`, () => { listAt(list).splice(i, 0, item); save(); render(); });
 }
 
 // ---------- journal edits ----------
@@ -626,13 +828,16 @@ function setJournal(k, field, value) {
 // ---------- settings ----------
 function openSettings() {
   const dlg = $('#sheet');
-  const counts = `${state.tasks.length} tasks · ${state.habits.length} habits · ${state.expenses.length} money entries · ${Object.keys(state.journal).length} journal days`;
+  const counts = `${state.tasks.length} tasks · ${state.habits.length} habits · ${state.expenses.length} money entries · ${Object.keys(state.journal).length} journal days · ${state.office.shifts.length} work entries · ${state.office.meetings.length} meetings`;
   dlg.innerHTML = `
   <form method="dialog" class="sheet">
     <h2>Settings</h2>
     <p class="meta">${counts}</p>
     <label class="lbl">Currency
       <select id="currency">${CURRENCIES.map(c => `<option ${c === state.settings.currency ? 'selected' : ''}>${c}</option>`).join('')}</select>
+    </label>
+    <label class="lbl">Work day length (hours) — used for overtime
+      <input type="number" id="workHours" min="1" max="24" step="0.5" inputmode="decimal" value="${state.settings.workHours}">
     </label>
     <h3>Weekly report</h3>
     <p class="meta">An Excel file with this week's summary plus a Weekly Tracker sheet covering every week so far. Save it to Files or iCloud Drive.</p>
@@ -662,7 +867,7 @@ async function importData(file) {
       && typeof data.journal === 'object';
     if (!ok) throw new Error('bad shape');
     if (!confirm('Replace ALL current data with this backup?')) return;
-    state = { ...defaults(), ...data, settings: { ...defaults().settings, ...(data.settings || {}) } };
+    state = hydrate(data);
     save(); render(); $('#sheet').close();
     toast('Backup restored');
   } catch {
@@ -719,6 +924,35 @@ document.addEventListener('click', e => {
     }
     case 'open-journal': ui.jdate = day; go('journal'); break;
 
+    case 'office-view': ui.office = b.dataset.view; render(); break;
+    case 'clock-in':
+      if (!openShift()) state.office.shifts.push({ id: uid(), date: today(), start: Date.now(), end: null, breakMin: 0 });
+      save(); render();
+      break;
+    case 'clock-out': {
+      const sh = openShift();
+      if (sh) { sh.end = Date.now(); save(); render(); toast(`Clocked out · ${fmtDur(shiftMin(sh))}`); }
+      break;
+    }
+    case 'del-shift': removeWithUndo('office.shifts', id, 'Entry'); break;
+    case 'del-dayoff': removeWithUndo('office.daysOff', id, 'Day off'); break;
+    case 'toggle-otask': {
+      const t = state.office.tasks.find(x => x.id === id);
+      if (t) { t.done = !t.done; t.doneAt = t.done ? today() : null; save(); render(); }
+      break;
+    }
+    case 'del-otask': removeWithUndo('office.tasks', id, 'Task'); break;
+    case 'toggle-action': {
+      const a = state.office.meetings.find(m => m.id === id)?.actions.find(x => x.id === b.dataset.aid);
+      if (a) { a.done = !a.done; save(); render(); }
+      break;
+    }
+    case 'del-meeting': {
+      const m = state.office.meetings.find(x => x.id === id);
+      if (m && confirm(`Delete the meeting "${m.title}"?`)) removeWithUndo('office.meetings', id, 'Meeting');
+      break;
+    }
+
     case 'export': exportData(); break;
     case 'report': exportReport(b.dataset.week); break;
     case 'report-skip':
@@ -766,6 +1000,36 @@ document.addEventListener('submit', e => {
       note: (d.note || '').trim(), date: d.date || today(), created: Date.now(),
     });
     toast(`${type === 'in' ? 'Income' : 'Expense'} of ${money(amount)} logged`);
+  } else if (kind === 'shift') {
+    if (!d.date || !d.start || !d.end) return;
+    const start = atTime(d.date, d.start);
+    let end = atTime(d.date, d.end);
+    if (end <= start) end += 864e5;   // shift past midnight
+    const breakMin = Math.max(0, parseInt(d.break, 10) || 0);
+    state.office.shifts.push({ id: uid(), date: d.date, start, end, breakMin });
+    toast(`Added ${fmtDur((end - start) / 6e4 - breakMin)} on ${fmtDate(d.date)}`);
+  } else if (kind === 'dayoff') {
+    if (!d.date) return;
+    state.office.daysOff = state.office.daysOff.filter(o => o.date !== d.date);
+    state.office.daysOff.push({ id: uid(), date: d.date, type: d.type || 'Day off' });
+    toast(`${d.type} saved for ${fmtDate(d.date)}`);
+  } else if (kind === 'otask') {
+    const title = (d.title || '').trim();
+    if (!title) return;
+    state.office.tasks.push({
+      id: uid(), title, priority: PRIORITY[d.priority] ? d.priority : 'med',
+      due: d.due || null, done: false, doneAt: null, created: Date.now(),
+    });
+  } else if (kind === 'meeting') {
+    const title = (d.title || '').trim();
+    if (!title) return;
+    const actions = (d.actions || '').split('\n').map(x => x.trim()).filter(Boolean)
+      .map(text => ({ id: uid(), text, done: false }));
+    state.office.meetings.push({
+      id: uid(), title, date: d.date || today(), time: d.time || '',
+      notes: (d.notes || '').trim(), actions, created: Date.now(),
+    });
+    toast('Meeting saved');
   } else return;
 
   save(); render();
@@ -782,6 +1046,9 @@ document.addEventListener('change', e => {
     if (sel) sel.innerHTML = catOptions(t.value);
   } else if (t.id === 'currency') {
     state.settings.currency = t.value; save(); render();
+  } else if (t.id === 'workHours') {
+    const n = parseFloat(t.value);
+    if (n > 0 && n <= 24) { state.settings.workHours = n; save(); render(); }
   } else if (t.id === 'importFile' && t.files[0]) {
     importData(t.files[0]);
     t.value = '';
@@ -812,10 +1079,11 @@ document.addEventListener('input', e => {
 
 // Roll over to the new day if the app stays open past midnight
 function checkDay() {
+  const typing = document.activeElement && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
+  if (ui.tab === 'office' && ui.office === 'hours' && openShift() && !typing && !$('details[open]')) render();
   if (ui.day !== today()) {
     if (ui.jdate === ui.day) ui.jdate = today();
     if (ui.month === ui.day.slice(0, 7)) ui.month = today().slice(0, 7);
-    const typing = document.activeElement && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
     if (!typing) render();
   }
 }

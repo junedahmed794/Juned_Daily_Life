@@ -59,7 +59,7 @@ main { max-width: 640px; margin: 0 auto; padding: 4px 16px 24px; }
 
 .tabs {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
-  display: grid; grid-template-columns: repeat(5, 1fr);
+  display: grid; grid-template-columns: repeat(6, 1fr);
   background: var(--surface);
   border-top: 1px solid var(--line);
   padding-bottom: env(safe-area-inset-bottom);
@@ -94,7 +94,7 @@ main { max-width: 640px; margin: 0 auto; padding: 4px 16px 24px; }
   background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
   padding: 12px; box-shadow: var(--shadow);
 }
-.stat b { display: block; font-size: 22px; letter-spacing: -.02em; }
+.stat b { display: block; font-size: clamp(16px, 5.2vw, 22px); letter-spacing: -.02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .stat span { color: var(--muted); font-size: 12px; }
 
 .grow { flex: 1; min-width: 0; }
@@ -245,3 +245,29 @@ dialog::backdrop { background: rgba(10, 10, 20, .45); }
 
 .report { border-color: var(--accent); background: var(--accent-soft); }
 .report .btns { display: flex; gap: 8px; margin-top: 10px; }
+
+/* ---------- office ---------- */
+.subtabs {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+  padding: 4px; margin-bottom: 14px;
+}
+.subtabs button { border: 0; background: none; border-radius: 9px; padding: 9px 4px; font-weight: 600; color: var(--muted); font-size: 14px; }
+.subtabs button.on { background: var(--accent); color: var(--accent-text); }
+
+.clock { text-align: center; }
+.clock .big { font-size: 40px; font-weight: 700; letter-spacing: -.03em; margin: 2px 0 12px; font-variant-numeric: tabular-nums; }
+.clock .btn { margin-top: 10px; font-size: 17px; min-height: 50px; }
+.clock .hint { margin: 10px 0 0; font-size: 12px; }
+.btn.danger-fill { background: var(--danger); border-color: var(--danger); color: #fff; }
+
+details.card > summary { cursor: pointer; font-weight: 600; list-style: none; }
+details.card > summary::-webkit-details-marker { display: none; }
+details.card[open] > summary { margin-bottom: 4px; }
+
+.pri { display: inline-block; font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 999px; margin-right: 4px; }
+.pri-high { background: color-mix(in srgb, var(--danger) 16%, transparent); color: var(--danger); }
+.pri-med { background: var(--accent-soft); color: var(--accent); }
+.pri-low { background: var(--bg); color: var(--muted); border: 1px solid var(--line); }
+
+.note { white-space: pre-wrap; overflow-wrap: anywhere; margin: 10px 0 4px; font-size: 15px; }
