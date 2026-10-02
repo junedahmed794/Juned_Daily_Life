@@ -26,7 +26,7 @@ const CATS = {
   in: ['Salary', 'Side income', 'Gift', 'Other'],
 };
 const CURRENCIES = ['USD', 'EUR', 'GBP', 'INR', 'PKR', 'BDT', 'AED', 'SAR', 'CAD', 'AUD', 'JPY', 'NGN'];
-const TABS = { today: 'Today', tasks: 'Tasks', habits: 'Habits', money: 'Money', office: 'Office', journal: 'Journal' };
+const TABS = { today: 'Today', tasks: 'Tasks', habits: 'Habits', money: 'Money', office: 'Office', shop: 'Shop', journal: 'Journal' };
 
 function fmtDate(k) {
   const t = today();
@@ -54,7 +54,7 @@ function guessCurrency() {
 const defaults = () => ({
   tasks: [], habits: [], expenses: [], journal: {},
   office: { shifts: [], daysOff: [], tasks: [], meetings: [] },
-  settings: { currency: guessCurrency(), workHours: 8 },
+  settings: { currency: guessCurrency(), workHours: 8, name: 'Juned' },
 });
 
 // Fill in anything missing from older saves or backups
@@ -803,6 +803,54 @@ views.office = () => {
       data-action="office-view" data-view="${key}">${label}</button>`).join('')}</div>${body}`;
 };
 
+// ---------- shared shopping list ----------
+function startShop() {
+  if (!PUSH_SERVER) return;
+  if (!state.settings.shopCode || !state.settings.deviceId) {
+    state.settings.shopCode = state.settings.shopCode || Shop.newCode();
+    state.settings.deviceId = state.settings.deviceId || uid();
+    save();
+  }
+  Shop.init({
+    code: state.settings.shopCode, name: state.settings.name || 'Me', device: state.settings.deviceId,
+    onChange: () => { if (ui.tab === 'shop' && !Shop.isTyping() && !$('#sheet').open) render(); },
+    onMessage: toast,
+  });
+}
+
+const shopLink = () => new URL(`shop.html?list=${state.settings.shopCode}`, location.href.split(/[?#]/)[0]).href;
+
+async function shareShopLink() {
+  const url = shopLink();
+  try {
+    if (navigator.share) { await navigator.share({ title: 'Our shopping list', text: 'Here’s our shared shopping list 🛒', url }); return; }
+  } catch (e) { if (e.name === 'AbortError') return; }
+  try { await navigator.clipboard.writeText(url); toast('Link copied — paste it in a message'); }
+  catch { prompt('Copy this link:', url); }
+}
+
+async function resetShopLink() {
+  if (!confirm('Make a new link? The old link will stop showing your list. You’ll need to send the new link again.')) return;
+  const keep = Shop.items.filter(i => !String(i.id).startsWith('tmp-'));
+  await Shop.wipe();
+  state.settings.shopCode = Shop.newCode();
+  save();
+  startShop();
+  await Shop.importItems(keep);
+  render();
+  toast('New link ready — tap Share link to send it');
+}
+
+views.shop = () => PUSH_SERVER ? `
+  ${Shop.html()}
+  <div class="card share">
+    <h2>👩 Shared with your wife</h2>
+    <p class="meta">Send her this link. It opens a shopping-only app — she can't see anything else in Juned Daily.
+      ${state.settings.notify ? 'You’ll get a 🔔 when she adds something.' : 'Turn on notifications in ⚙︎ Settings to get a 🔔 when she adds something.'}</p>
+    <div class="btns"><button class="btn primary" data-action="shop-share">Share link</button>
+      <button class="btn" data-action="shop-reset">New link</button></div>
+  </div>` : Shop.html();
+
 // ---------- render ----------
 function render() {
   ui.day = today();
@@ -813,6 +861,7 @@ function render() {
     b.classList.toggle('active', on);
     if (on) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
   });
+  if (ui.tab === 'shop') Shop.start(); else Shop.stop();
   $('#view').innerHTML = views[ui.tab]();
 }
 
@@ -854,9 +903,6 @@ function setJournal(k, field, value) {
 }
 
 // ---------- reminders (push notifications) ----------
-// Address of the Cloudflare Worker in server/worker.js
-const PUSH_SERVER = '';
-
 const pushSupported = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
 const isStandalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
 const b64uToBytes = str => {
@@ -895,6 +941,7 @@ async function syncReminders(force = false) {
     const data = {
       id: state.settings.deviceId, subscription: sub.toJSON(),
       tz: Intl.DateTimeFormat().resolvedOptions().timeZone, reminders: reminderList(),
+      lists: state.settings.shopCode ? [state.settings.shopCode] : [],
     };
     const key = JSON.stringify(data);
     if (!force && key === lastSync) return true;
@@ -980,6 +1027,9 @@ function openSettings() {
     <label class="lbl">Currency
       <select id="currency">${CURRENCIES.map(c => `<option ${c === state.settings.currency ? 'selected' : ''}>${c}</option>`).join('')}</select>
     </label>
+    <label class="lbl">Your name — shown on the shared shopping list
+      <input id="myName" maxlength="30" autocomplete="given-name" value="${esc(state.settings.name || '')}">
+    </label>
     <label class="lbl">Work day length (hours) — used for overtime
       <input type="number" id="workHours" min="1" max="24" step="0.5" inputmode="decimal" value="${state.settings.workHours}">
     </label>
@@ -1041,6 +1091,8 @@ document.addEventListener('click', e => {
       else toast(t.remind ? `🔔 Reminder on for ${fmtHM(t.time)}` : 'Reminder off');
       break;
     }
+    case 'shop-share': shareShopLink(); break;
+    case 'shop-reset': resetShopLink(); break;
     case 'notify-on': enableNotifications(); break;
     case 'notify-off': disableNotifications(); break;
     case 'notify-test': testNotification(); break;
@@ -1211,6 +1263,8 @@ document.addEventListener('change', e => {
     if (sel) sel.innerHTML = catOptions(t.value);
   } else if (t.id === 'currency') {
     state.settings.currency = t.value; save(); render();
+  } else if (t.id === 'myName') {
+    state.settings.name = t.value.trim().slice(0, 30) || 'Me'; save(); startShop();
   } else if (t.id === 'workHours') {
     const n = parseFloat(t.value);
     if (n > 0 && n <= 24) { state.settings.workHours = n; save(); render(); }
@@ -1257,6 +1311,7 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) chec
 setInterval(checkDay, 60 * 1000);
 
 // ---------- boot ----------
+startShop();
 render();
 if (state.settings.notify && PUSH_SERVER) navigator.serviceWorker?.ready.then(() => syncReminders(true));
 if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});

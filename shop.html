@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#16a34a">
+  <meta name="description" content="Shared shopping list">
+  <!-- No manifest on purpose: iPhone then keeps the private ?list= link when added to the Home Screen -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Shopping">
+  <meta name="referrer" content="no-referrer">
+  <link rel="icon" href="shop-icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="shop-icon.png">
+  <link rel="stylesheet" href="styles.css">
+  <style>body { padding-bottom: calc(24px + env(safe-area-inset-bottom)); }</style>
+  <title>Shopping List</title>
+</head>
+<body>
+  <header class="topbar">
+    <h1>🛒 Shopping</h1>
+    <button class="icon-btn" id="who" aria-label="Change your name">👤</button>
+  </header>
+  <main id="view"></main>
+  <div id="toast" role="status" aria-live="polite"></div>
+
+  <script src="config.js"></script>
+  <script src="shop.js"></script>
+  <script>
+  'use strict';
+  (() => {
+    const get = k => { try { return localStorage.getItem(k); } catch { return null; } };
+    const set = (k, v) => { try { localStorage.setItem(k, v); } catch { /* ignore */ } };
+    const view = document.getElementById('view');
+
+    const fromLink = new URLSearchParams(location.search).get('list');
+    if (fromLink) set('shop-code', fromLink);
+    const code = fromLink || get('shop-code') || '';
+    let device = get('shop-device');
+    if (!device) { device = Shop.newCode().slice(0, 16); set('shop-device', device); }
+    const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+
+    let toastTimer;
+    function toast(msg) {
+      const el = document.getElementById('toast');
+      el.textContent = msg;
+      el.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => el.classList.remove('show'), 2500);
+    }
+
+    function render() {
+      if (!/^[A-Za-z0-9_-]{20,64}$/.test(code)) {
+        view.innerHTML = '<p class="empty" style="text-align:center">Open the shopping list link you were sent to see the list.</p>';
+        return;
+      }
+      if (!get('shop-name')) {
+        view.innerHTML = `<form class="card" id="nameForm">
+          <h2>Welcome 👋</h2>
+          <p class="meta">What's your name? It shows next to the items you add.</p>
+          <input name="n" required autocomplete="given-name" placeholder="Your name" maxlength="30" aria-label="Your name">
+          <button class="btn primary block" style="margin-top:10px">Continue</button>
+        </form>`;
+        return;
+      }
+      if (Shop.isTyping()) return;
+      view.innerHTML = Shop.html() + (standalone ? '' :
+        '<p class="meta" style="text-align:center;margin-top:18px">Tip: tap <b>Share → Add to Home Screen</b> to keep this list as an app.</p>');
+    }
+
+    function start() {
+      Shop.init({ code, name: get('shop-name') || '', device, onChange: render, onMessage: toast });
+      render();
+      Shop.start();
+    }
+
+    document.addEventListener('submit', e => {
+      if (e.target.id !== 'nameForm') return;
+      e.preventDefault();
+      const n = e.target.n.value.trim();
+      if (!n) return;
+      set('shop-name', n);
+      start();
+    });
+
+    document.getElementById('who').addEventListener('click', () => {
+      const n = prompt('Your name (shown next to items you add):', get('shop-name') || '');
+      if (n && n.trim()) { set('shop-name', n.trim().slice(0, 30)); start(); }
+    });
+
+    start();
+  })();
+  </script>
+</body>
+</html>
