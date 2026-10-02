@@ -30,8 +30,9 @@
   <script>
   'use strict';
   (() => {
-    const get = k => { try { return localStorage.getItem(k); } catch { return null; } };
-    const set = (k, v) => { try { localStorage.setItem(k, v); } catch { /* ignore */ } };
+    const mem = {};   // fallback if the browser blocks saving
+    const get = k => { try { const v = localStorage.getItem(k); if (v !== null) return v; } catch { /* blocked */ } return mem[k] ?? null; };
+    const set = (k, v) => { mem[k] = v; try { localStorage.setItem(k, v); } catch { /* blocked */ } };
     const view = document.getElementById('view');
 
     const fromLink = new URLSearchParams(location.search).get('list');
@@ -56,6 +57,7 @@
         return;
       }
       if (!get('shop-name')) {
+        if (document.getElementById('nameForm')) return;   // never wipe what is being typed
         view.innerHTML = `<form class="card" id="nameForm">
           <h2>Welcome 👋</h2>
           <p class="meta">What's your name? It shows next to the items you add.</p>
@@ -70,7 +72,9 @@
     }
 
     function start() {
-      Shop.init({ code, name: get('shop-name') || '', device, onChange: render, onMessage: toast });
+      render();
+      if (!get('shop-name')) return;   // load the list only once we know who this is
+      Shop.init({ code, name: get('shop-name'), device, onChange: render, onMessage: toast });
       render();
       Shop.start();
     }
