@@ -59,7 +59,7 @@ main { max-width: 640px; margin: 0 auto; padding: 4px 16px 24px; }
 
 .tabs {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
-  display: grid; grid-template-columns: repeat(6, 1fr);
+  display: grid; grid-template-columns: repeat(7, 1fr);
   background: var(--surface);
   border-top: 1px solid var(--line);
   padding-bottom: env(safe-area-inset-bottom);
@@ -282,3 +282,11 @@ details.card[open] > summary { margin-bottom: 4px; }
 .add .hint { margin: 10px 0 0; font-size: 12px; }
 .bell { font-size: 17px; opacity: .55; }
 .bell.on { opacity: 1; }
+
+/* ---------- shopping ---------- */
+.qty { font-size: 12px; font-weight: 700; color: var(--accent); background: var(--accent-soft); border-radius: 999px; padding: 1px 8px; margin-left: 4px; white-space: nowrap; }
+.share { margin-top: 22px; }
+.share .btns { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.tabs button { font-size: 10.5px; }
+.add-row.nowrap { flex-wrap: nowrap; }
+.add-row.nowrap select { flex: 1; min-width: 0; }

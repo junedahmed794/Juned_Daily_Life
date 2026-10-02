@@ -1,12 +1,13 @@
 /* =========================================================
-   Juned Daily — reminder push server (Cloudflare Worker)
+   Juned Daily - reminder push server (Cloudflare Worker)
 
    Setup (Cloudflare dashboard):
    - Binding:      KV namespace, variable name  KV
    - Cron trigger: * * * * *   (every minute)
 
-   Stores only reminder titles, times and repeat rules — plus the
-   push address of each device. Everything else stays on the phone.
+   Stores only reminder titles, times and repeat rules, the shared
+   shopping list, and the push address of each device.
+   Everything else stays on the phone.
    ========================================================= */
 
 const ALLOWED_ORIGINS = ['https://junedahmed794.github.io', 'http://localhost:5173'];
@@ -15,6 +16,9 @@ const PUSH_HOSTS = /^https:\/\/([a-z0-9-]+\.)*(push\.apple\.com|fcm\.googleapis\
 const REPEATS = ['none', 'daily', 'weekdays', 'weekly', 'monthly'];
 const MAX_DEVICES = 10, MAX_REMINDERS = 300;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
+const LIST_CODE = /^[A-Za-z0-9_-]{20,64}$/;
+const SHOP_CATS = ['Groceries', 'Household', 'Pharmacy', 'Other'];
+const MAX_ITEMS = 300;
 
 const te = new TextEncoder();
 const b64u = {
@@ -148,6 +152,53 @@ function cleanReminder(r) {
   };
 }
 
+// ---------- shared shopping list ----------
+const rid = () => b64u.enc(crypto.getRandomValues(new Uint8Array(9)));
+const cleanText = (v, n) => String(v || '').trim().slice(0, n);
+
+function cleanItem(x, by) {
+  const name = cleanText(x && x.name, 80);
+  if (!name) return null;
+  return {
+    id: cleanText(x.id, 20) || rid(), name, qty: cleanText(x.qty, 20),
+    cat: SHOP_CATS.includes(x.cat) ? x.cat : 'Groceries',
+    done: !!x.done, by: cleanText(x.by || by, 30), at: Number(x.at) || Date.now(),
+  };
+}
+
+function applyListOp(list, b) {
+  const by = cleanText(b.by, 30);
+  const item = list.items.find(i => i.id === b.id);
+  switch (b.op) {
+    case 'add': {
+      const it = cleanItem({ ...b.item, id: '', done: false, at: 0 }, by);
+      if (!it || list.items.length >= MAX_ITEMS) return null;
+      list.items.push(it);
+      return it;
+    }
+    case 'toggle': if (item) item.done = !item.done; return item;
+    case 'remove': list.items = list.items.filter(i => i.id !== b.id); return true;
+    case 'clear': list.items = list.items.filter(i => !i.done); return true;
+    case 'wipe': list.items = []; return true;   // old link retired
+    case 'import':   // moving the list to a new link: only into an empty list
+      if (!list.items.length && Array.isArray(b.items)) list.items = b.items.slice(0, MAX_ITEMS).map(x => cleanItem(x, by)).filter(Boolean);
+      return true;
+    default: return null;
+  }
+}
+
+async function notifyListAdd(env, code, item, fromDevice) {
+  const devices = (await env.KV.get('devices', 'json')) || {};
+  const targets = Object.entries(devices).filter(([id, d]) => id !== fromDevice && (d.lists || []).includes(code));
+  if (!targets.length) return;
+  const keys = await vapidKeys(env);
+  await Promise.all(targets.map(([, d]) => sendPush(d.subscription, {
+    title: '\u{1f6d2} Added to the shopping list',
+    body: `${item.name}${item.qty ? ` (${item.qty})` : ''}${item.by ? ` - by ${item.by}` : ''}`,
+    tag: `shop-${item.id}`,
+  }, keys).catch(() => {})));
+}
+
 // ---------- handlers ----------
 export default {
   async fetch(req, env) {
@@ -165,12 +216,31 @@ export default {
     const path = new URL(req.url).pathname;
 
     try {
-      if (req.method === 'GET' && path === '/') return new Response('Juned Daily reminder server is running ✓', { headers: cors });
+      if (req.method === 'GET' && path === '/') return new Response('Juned Daily reminder server is running \u{2713}', { headers: cors });
       if (req.method === 'GET' && path === '/key') return json({ publicKey: (await vapidKeys(env)).publicKey });
+      if (req.method === 'GET' && path === '/list') {
+        if (!ALLOWED_ORIGINS.includes(origin)) return json({ error: 'forbidden' }, 403);
+        const code = new URL(req.url).searchParams.get('code') || '';
+        if (!LIST_CODE.test(code)) return json({ error: 'bad code' }, 400);
+        return json((await env.KV.get(`list:${code}`, 'json')) || { items: [] });
+      }
       if (req.method !== 'POST') return json({ error: 'not found' }, 404);
       if (!ALLOWED_ORIGINS.includes(origin)) return json({ error: 'forbidden' }, 403);
 
       const body = await req.json();
+
+      if (path === '/list') {
+        if (!LIST_CODE.test(body.code || '')) return json({ error: 'bad code' }, 400);
+        const key = `list:${body.code}`;
+        const list = (await env.KV.get(key, 'json')) || { items: [] };
+        const result = applyListOp(list, body);
+        if (!result) return json({ error: 'bad request', ...list }, 400);
+        list.updated = Date.now();
+        await env.KV.put(key, JSON.stringify(list));
+        if (body.op === 'add') await notifyListAdd(env, body.code, result, cleanText(body.device, 40));
+        return json(list);
+      }
+
       const id = String(body.id || '').slice(0, 40);
       if (!id) return json({ error: 'missing id' }, 400);
       const devices = (await env.KV.get('devices', 'json')) || {};
@@ -187,6 +257,7 @@ export default {
           subscription: { endpoint: sub.endpoint, keys: { p256dh: String(sub.keys.p256dh), auth: String(sub.keys.auth) } },
           tz: typeof body.tz === 'string' ? body.tz.slice(0, 64) : 'UTC',
           reminders,
+          lists: (Array.isArray(body.lists) ? body.lists : []).filter(c => LIST_CODE.test(c)).slice(0, 5),
           updated: Date.now(),
         };
         await env.KV.put('devices', JSON.stringify(devices));
@@ -197,7 +268,7 @@ export default {
         const dev = devices[id];
         if (!dev) return json({ error: 'not registered' }, 404);
         const res = await sendPush(dev.subscription,
-          { title: '🔔 Notifications are on', body: 'Juned Daily will remind you at the times you set.', tag: 'test' },
+          { title: '\u{1f514} Notifications are on', body: 'Juned Daily will remind you at the times you set.', tag: 'test' },
           await vapidKeys(env));
         return json({ ok: res.ok, status: res.status });
       }
@@ -228,7 +299,7 @@ export default {
     const gone = new Set();
     await Promise.all(due.map(async ({ id, dev, r }) => {
       try {
-        const res = await sendPush(dev.subscription, { title: `⏰ ${r.title}`, body: 'Reminder from Juned Daily', tag: r.id }, keys);
+        const res = await sendPush(dev.subscription, { title: `\u{23f0} ${r.title}`, body: 'Reminder from Juned Daily', tag: r.id }, keys);
         if (res.status === 404 || res.status === 410) gone.add(id);   // device unsubscribed
       } catch { /* try again next time */ }
     }));
