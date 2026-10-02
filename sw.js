@@ -1,6 +1,6 @@
 // Network-first service worker: always gets the latest version when online,
 // falls back to the cached copy when offline.
-const CACHE = 'daily-life-v1';
+const CACHE = 'juned-daily-v2';
 const ASSETS = ['./', 'index.html', 'styles.css', 'app.js', 'manifest.json', 'icon.svg', 'icon-512.png'];
 
 self.addEventListener('install', e => {

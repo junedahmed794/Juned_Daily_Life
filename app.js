@@ -1,7 +1,7 @@
 'use strict';
 
 /* =========================================================
-   Daily Life — tasks, habits, money and journal in one app.
+   Juned Daily — tasks, habits, money and journal in one app.
    All data is stored on this device (localStorage).
    ========================================================= */
 
@@ -387,7 +387,7 @@ views.journal = () => {
 function render() {
   ui.day = today();
   $('#title').textContent = TABS[ui.tab];
-  document.title = `${TABS[ui.tab]} · Daily Life`;
+  document.title = `${TABS[ui.tab]} · Juned Daily`;
   document.querySelectorAll('.tabs button').forEach(b => {
     const on = b.dataset.tab === ui.tab;
     b.classList.toggle('active', on);
@@ -459,7 +459,7 @@ function exportData() {
   const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = `daily-life-backup-${today()}.json`;
+  a.download = `juned-daily-backup-${today()}.json`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
@@ -475,7 +475,7 @@ async function importData(file) {
     save(); render(); $('#sheet').close();
     toast('Backup restored');
   } catch {
-    toast('That file is not a Daily Life backup');
+    toast('That file is not a Juned Daily backup');
   }
 }
 
@@ -530,7 +530,7 @@ document.addEventListener('click', e => {
 
     case 'export': exportData(); break;
     case 'wipe':
-      if (confirm('Erase ALL your Daily Life data on this device? This cannot be undone.')
+      if (confirm('Erase ALL your Juned Daily data on this device? This cannot be undone.')
         && confirm('Are you absolutely sure? Consider exporting a backup first.')) {
         state = defaults(); save(); render(); $('#sheet').close();
         toast('All data erased');

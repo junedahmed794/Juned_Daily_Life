@@ -1,4 +1,4 @@
-# Daily Life
+# Juned Daily
 
 Tasks, habits, money and journal in one app.
 
