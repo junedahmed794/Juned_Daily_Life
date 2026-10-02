@@ -271,3 +271,14 @@ details.card[open] > summary { margin-bottom: 4px; }
 .pri-low { background: var(--bg); color: var(--muted); border: 1px solid var(--line); }
 
 .note { white-space: pre-wrap; overflow-wrap: anywhere; margin: 10px 0 4px; font-size: 15px; }
+
+/* ---------- reminders ---------- */
+.toggle {
+  flex: 1; display: flex; align-items: center; gap: 8px; min-height: 42px; padding: 0 12px;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--bg); font-size: 15px; cursor: pointer;
+}
+.toggle input { width: 20px; height: 20px; min-height: 0; margin: 0; accent-color: var(--accent); }
+.toggle:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); font-weight: 600; }
+.add .hint { margin: 10px 0 0; font-size: 12px; }
+.bell { font-size: 17px; opacity: .55; }
+.bell.on { opacity: 1; }

@@ -77,6 +77,7 @@ function load() {
 function save() {
   try { localStorage.setItem(KEY, JSON.stringify(state)); }
   catch { toast('Could not save — browser storage is unavailable'); }
+  scheduleSync();
 }
 
 let state = load();
@@ -84,13 +85,33 @@ const ui = { tab: 'today', month: today().slice(0, 7), jdate: today(), day: toda
 try { const t = localStorage.getItem(KEY + ':tab'); if (TABS[t]) ui.tab = t; } catch { /* ignore */ }
 
 // ---------- tasks ----------
-const isRepeat = t => t.repeat === 'daily' || t.repeat === 'weekly';
+const REPEATS = { none: 'One-time', daily: 'Every day', weekdays: 'Weekdays (Mon–Fri)', weekly: 'Every week', monthly: 'Every month' };
+const isRepeat = t => t.repeat in REPEATS && t.repeat !== 'none';
 
 function dueOn(t, k) {
-  if (t.repeat === 'daily') return true;
-  if (t.repeat === 'weekly') return parseKey(k).getDay() === t.weekday;
-  return false;
+  const d = parseKey(k), dow = d.getDay();
+  switch (t.repeat) {
+    case 'daily': return true;
+    case 'weekdays': return dow >= 1 && dow <= 5;
+    case 'weekly': return dow === t.weekday;
+    case 'monthly': return d.getDate() === Math.min(t.monthDay, new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate());
+    default: return false;
+  }
 }
+
+const ordinal = n => { const s = ['th', 'st', 'nd', 'rd'], v = n % 100; return n + (s[(v - 20) % 10] || s[v] || s[0]); };
+function repeatLabel(t) {
+  switch (t.repeat) {
+    case 'daily': return '↻ Every day';
+    case 'weekdays': return '↻ Weekdays';
+    case 'weekly': return `↻ Every ${WEEKDAYS[t.weekday]}`;
+    case 'monthly': return `↻ Monthly on the ${ordinal(t.monthDay)}`;
+    default: return '';
+  }
+}
+const fmtHM = hm => fmtTime(atTime(today(), hm));
+const timeOptions = () => Array.from({ length: 96 }, (_, i) => `${pad(Math.floor(i / 4))}:${pad((i % 4) * 15)}`)
+  .map(hm => `<option value="${hm}">${fmtHM(hm)}</option>`).join('');
 
 const isDone = (t, k = today()) => isRepeat(t) ? !!(t.doneDates && t.doneDates[k]) : !!t.done;
 
@@ -102,7 +123,8 @@ function todaysTasks() {
 }
 
 const sortTasks = list => [...list].sort((a, b) =>
-  isDone(a) - isDone(b) || (a.due || '9999').localeCompare(b.due || '9999') || a.created - b.created);
+  isDone(a) - isDone(b) || (a.due || '9999').localeCompare(b.due || '9999')
+  || (a.time || '99:99').localeCompare(b.time || '99:99') || a.created - b.created);
 
 function toggleTask(id) {
   const t = state.tasks.find(x => x.id === id);
@@ -122,15 +144,18 @@ function taskRow(t, { check = true } = {}) {
   const k = today();
   const done = check && isDone(t, k);
   let meta = '';
-  if (t.repeat === 'daily') meta = '↻ Every day';
-  else if (t.repeat === 'weekly') meta = `↻ Every ${WEEKDAYS[t.weekday]}`;
+  if (isRepeat(t)) meta = repeatLabel(t);
   else if (t.done && t.doneAt) meta = `Done ${fmtDate(t.doneAt).toLowerCase()}`;
   else if (t.due) meta = t.due < k ? `<span class="overdue">Overdue · ${fmtDate(t.due)}</span>` : fmtDate(t.due);
+  if (t.time) meta += `${meta ? ' · ' : ''}🕘 ${fmtHM(t.time)}`;
+  const bell = t.time && !(t.repeat === 'none' && t.done)
+    ? `<button class="icon-btn bell ${t.remind ? 'on' : ''}" data-action="toggle-remind" data-id="${t.id}"
+        aria-label="${t.remind ? 'Turn off reminder' : 'Turn on reminder'}" aria-pressed="${!!t.remind}">${t.remind ? '🔔' : '🔕'}</button>` : '';
   return `<li class="row ${done ? 'done' : ''}">
     <button class="check ${done ? 'on' : ''} ${check ? '' : 'ghost'}" data-action="toggle-task" data-id="${t.id}"
       aria-label="${done ? 'Mark not done' : 'Mark done'}: ${esc(t.title)}" ${check ? '' : 'tabindex="-1"'}></button>
     <div class="grow"><div class="row-title">${esc(t.title)}</div>${meta ? `<div class="meta">${meta}</div>` : ''}</div>
-    <button class="icon-btn" data-action="del-task" data-id="${t.id}" aria-label="Delete task">×</button>
+    ${bell}<button class="icon-btn" data-action="del-task" data-id="${t.id}" aria-label="Delete task">×</button>
   </li>`;
 }
 
@@ -633,14 +658,17 @@ views.tasks = () => {
   <form class="card add" data-form="task">
     <input name="title" placeholder="What do you need to do?" required autocomplete="off" aria-label="New task">
     <div class="add-row">
-      <input type="date" name="due" aria-label="Due date (optional)">
+      <input type="date" name="due" aria-label="Date (optional)">
       <select name="repeat" aria-label="Repeat">
-        <option value="none">One-time</option>
-        <option value="daily">Every day</option>
-        <option value="weekly">Every week</option>
+        ${Object.entries(REPEATS).map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}
       </select>
-      <button class="btn primary">Add</button>
     </div>
+    <div class="add-row">
+      <select name="time" aria-label="Time (optional)"><option value="">🕘 No time</option>${timeOptions()}</select>
+      <label class="toggle"><input type="checkbox" name="remind"><span>🔔 Remind me</span></label>
+    </div>
+    <button class="btn primary block" style="margin-top:8px">Add task</button>
+    ${!state.settings.notify ? '<p class="meta hint">To get 🔔 reminders, turn on notifications in ⚙︎ Settings.</p>' : ''}
   </form>
   ${taskSection('Today', now, 'Nothing due today. Enjoy! 🎉')}
   ${upcoming.length ? taskSection('Upcoming', upcoming) : ''}
@@ -825,6 +853,122 @@ function setJournal(k, field, value) {
   save();
 }
 
+// ---------- reminders (push notifications) ----------
+// Address of the Cloudflare Worker in server/worker.js
+const PUSH_SERVER = '';
+
+const pushSupported = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+const isStandalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+const b64uToBytes = str => {
+  str = str.replace(/-/g, '+').replace(/_/g, '/');
+  return Uint8Array.from(atob(str + '='.repeat((4 - (str.length % 4)) % 4)), c => c.charCodeAt(0));
+};
+const postJSON = (path, data) => fetch(`${PUSH_SERVER}${path}`, {
+  method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data),
+});
+
+// What the server needs to know: titles, times and repeat rules of tasks with 🔔 on
+function reminderList() {
+  const k = today();
+  return state.tasks.filter(t => t.remind && t.time && !(t.repeat === 'none' && t.done)).map(t => ({
+    id: t.id, title: t.title, time: t.time,
+    repeat: isRepeat(t) ? t.repeat : 'none',
+    weekday: t.weekday, monthDay: t.monthDay,
+    date: isRepeat(t) ? null : (t.due || createdKey(t)),
+    start: createdKey(t),
+    // already ticked off → no reminder that day
+    skip: isRepeat(t) ? [addDays(k, -1), k, addDays(k, 1)].filter(d => t.doneDates && t.doneDates[d]) : [],
+  }));
+}
+
+let syncTimer, lastSync = '';
+function scheduleSync() {
+  if (!state.settings.notify || !PUSH_SERVER) return;
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(syncReminders, 1500);
+}
+
+async function syncReminders(force = false) {
+  try {
+    const sub = await (await navigator.serviceWorker.ready).pushManager.getSubscription();
+    if (!sub) return false;
+    const data = {
+      id: state.settings.deviceId, subscription: sub.toJSON(),
+      tz: Intl.DateTimeFormat().resolvedOptions().timeZone, reminders: reminderList(),
+    };
+    const key = JSON.stringify(data);
+    if (!force && key === lastSync) return true;
+    const res = await postJSON('/sync', data);
+    if (res.ok) lastSync = key;
+    return res.ok;
+  } catch { return false; }
+}
+
+async function enableNotifications() {
+  if (!PUSH_SERVER) { toast('The reminder server is not connected yet'); return; }
+  if (!pushSupported()) {
+    toast(isStandalone() ? 'This device does not support notifications'
+      : 'Open Juned Daily from your Home Screen icon, then try again');
+    return;
+  }
+  const perm = await Notification.requestPermission();   // must run straight from the tap
+  if (perm !== 'granted') {
+    toast('Notifications are blocked — allow them in iPhone Settings → Notifications → Juned Daily');
+    return;
+  }
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) {
+      const { publicKey } = await (await fetch(`${PUSH_SERVER}/key`)).json();
+      sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64uToBytes(publicKey) });
+    }
+    state.settings.deviceId = state.settings.deviceId || uid();
+    state.settings.notify = true;
+    save();
+    if (!(await syncReminders(true))) throw new Error('sync failed');
+    await postJSON('/test', { id: state.settings.deviceId });
+    toast('Notifications are on 🔔');
+  } catch {
+    state.settings.notify = false; save();
+    toast('Could not turn on notifications — check your internet and try again');
+  }
+  refreshSettings();
+}
+
+async function disableNotifications() {
+  try {
+    const sub = await (await navigator.serviceWorker.ready).pushManager.getSubscription();
+    if (sub) await sub.unsubscribe();
+    await postJSON('/unsubscribe', { id: state.settings.deviceId });
+  } catch { /* server forgets this device on its own once pushes fail */ }
+  state.settings.notify = false; save(); render();
+  toast('Notifications off');
+  refreshSettings();
+}
+
+async function testNotification() {
+  try {
+    await syncReminders(true);
+    const res = await postJSON('/test', { id: state.settings.deviceId });
+    toast(res.ok ? 'Test sent — it should arrive in a few seconds' : 'Test failed — try turning notifications off and on');
+  } catch { toast('Could not reach the reminder server'); }
+}
+
+function notifySettings() {
+  const count = state.tasks.filter(t => t.remind && t.time).length;
+  if (!PUSH_SERVER) return '<p class="meta">Reminder server not connected yet.</p>';
+  if (state.settings.notify) return `
+    <p class="meta">🔔 Notifications are on for this device · ${count} reminder${count === 1 ? '' : 's'} set.</p>
+    <div class="btns"><button type="button" class="btn" data-action="notify-test">Send a test</button>
+      <button type="button" class="btn danger" data-action="notify-off">Turn off</button></div>`;
+  return `
+    <p class="meta">Get a notification at the time you set on a task. On iPhone, open Juned Daily from its Home Screen icon first.</p>
+    <div class="btns"><button type="button" class="btn primary" data-action="notify-on">🔔 Turn on notifications</button></div>`;
+}
+
+const refreshSettings = () => { if ($('#sheet').open) openSettings(); };
+
 // ---------- settings ----------
 function openSettings() {
   const dlg = $('#sheet');
@@ -839,6 +983,8 @@ function openSettings() {
     <label class="lbl">Work day length (hours) — used for overtime
       <input type="number" id="workHours" min="1" max="24" step="0.5" inputmode="decimal" value="${state.settings.workHours}">
     </label>
+    <h3>Reminders</h3>
+    ${notifySettings()}
     <h3>Weekly report</h3>
     <p class="meta">An Excel file with this week's summary plus a Weekly Tracker sheet covering every week so far. Save it to Files or iCloud Drive.</p>
     <div class="btns"><button type="button" class="btn" data-action="report" data-week="${weekStart(today())}">📊 Export this week (Excel)</button></div>
@@ -852,7 +998,7 @@ function openSettings() {
     <button type="button" class="btn danger" data-action="wipe">Erase all data</button>
     <div class="btns" style="justify-content:flex-end;margin-top:22px"><button class="btn primary">Done</button></div>
   </form>`;
-  dlg.showModal();
+  if (!dlg.open) dlg.showModal();
 }
 
 function exportData() {
@@ -887,6 +1033,17 @@ document.addEventListener('click', e => {
 
     case 'toggle-task': toggleTask(id); render(); break;
     case 'del-task': removeWithUndo('tasks', id, 'Task'); break;
+    case 'toggle-remind': {
+      const t = state.tasks.find(x => x.id === id);
+      if (!t) break;
+      t.remind = !t.remind; save(); render();
+      if (t.remind && !state.settings.notify) toast('Turn on notifications in ⚙︎ Settings to get reminders');
+      else toast(t.remind ? `🔔 Reminder on for ${fmtHM(t.time)}` : 'Reminder off');
+      break;
+    }
+    case 'notify-on': enableNotifications(); break;
+    case 'notify-off': disableNotifications(); break;
+    case 'notify-test': testNotification(); break;
 
     case 'toggle-habit': {
       const h = state.habits.find(x => x.id === id);
@@ -979,14 +1136,22 @@ document.addEventListener('submit', e => {
   if (kind === 'task') {
     const title = (d.title || '').trim();
     if (!title) return;
-    const repeat = d.repeat || 'none';
+    const repeat = REPEATS[d.repeat] ? d.repeat : 'none';
+    const time = /^\d{2}:\d{2}$/.test(d.time || '') ? d.time : '';
+    const remind = !!d.remind;
+    if (remind && !time) { toast('Pick a time for the reminder'); return; }
+    let due = repeat === 'none' ? (d.due || null) : null;
+    // a one-time reminder with no date: today if the time is still ahead, otherwise tomorrow
+    if (repeat === 'none' && remind && !due) due = atTime(today(), time) > Date.now() ? today() : addDays(today(), 1);
     const base = d.due || today();
     state.tasks.push({
-      id: uid(), title, created: Date.now(), repeat,
-      due: repeat === 'none' ? (d.due || null) : null,
+      id: uid(), title, created: Date.now(), repeat, due, time, remind,
       weekday: repeat === 'weekly' ? parseKey(base).getDay() : undefined,
+      monthDay: repeat === 'monthly' ? parseKey(base).getDate() : undefined,
       done: false, doneAt: null, doneDates: {},
     });
+    if (remind && !state.settings.notify) toast('Saved — turn on notifications in ⚙︎ Settings to get the reminder');
+    else if (remind) toast(`🔔 Reminder set for ${fmtHM(time)}`);
   } else if (kind === 'habit') {
     const name = (d.name || '').trim();
     if (!name) return;
@@ -1084,6 +1249,7 @@ function checkDay() {
   if (ui.day !== today()) {
     if (ui.jdate === ui.day) ui.jdate = today();
     if (ui.month === ui.day.slice(0, 7)) ui.month = today().slice(0, 7);
+    scheduleSync();
     if (!typing) render();
   }
 }
@@ -1092,6 +1258,7 @@ setInterval(checkDay, 60 * 1000);
 
 // ---------- boot ----------
 render();
+if (state.settings.notify && PUSH_SERVER) navigator.serviceWorker?.ready.then(() => syncReminders(true));
 if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   navigator.serviceWorker.register('sw.js').catch(() => {});

@@ -36,3 +36,12 @@ All data is stored **only in the browser on the device you use**. It's private, 
 | `app.js` | All app logic and screens |
 | `sw.js` | Service worker that lets the app work offline |
 | `manifest.json`, `icon.*` | Settings and icons for installing the app |
+
+## Reminders (push notifications)
+
+Tasks with a time and 🔔 send a notification at that time. iPhone web apps can only get notifications from a server, so a small Cloudflare Worker ([server/worker.js](server/worker.js)) checks every minute and sends whatever is due.
+
+- It stores only reminder titles, times and repeat rules, plus each device's push address. Everything else stays on the phone.
+- Setup is done in the Cloudflare dashboard: a Worker with this code, a KV namespace bound as `KV`, and a cron trigger `* * * * *`.
+- The Worker's URL goes in `PUSH_SERVER` at the top of the reminders section in `app.js`.
+- On iPhone, notifications only work when the app is opened from its Home Screen icon (iOS 16.4 or later).
