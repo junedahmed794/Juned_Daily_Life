@@ -1,5 +1,5 @@
 /* =========================================================
-   Juned Daily — reminder push server (Cloudflare Worker)
+   Juned Daily - reminder push server (Cloudflare Worker)
 
    Setup (Cloudflare dashboard):
    - Binding:      KV namespace, variable name  KV
@@ -193,8 +193,8 @@ async function notifyListAdd(env, code, item, fromDevice) {
   if (!targets.length) return;
   const keys = await vapidKeys(env);
   await Promise.all(targets.map(([, d]) => sendPush(d.subscription, {
-    title: '🛒 Added to the shopping list',
-    body: `${item.name}${item.qty ? ` (${item.qty})` : ''}${item.by ? ` — by ${item.by}` : ''}`,
+    title: '\u{1f6d2} Added to the shopping list',
+    body: `${item.name}${item.qty ? ` (${item.qty})` : ''}${item.by ? ` - by ${item.by}` : ''}`,
     tag: `shop-${item.id}`,
   }, keys).catch(() => {})));
 }
@@ -216,7 +216,7 @@ export default {
     const path = new URL(req.url).pathname;
 
     try {
-      if (req.method === 'GET' && path === '/') return new Response('Juned Daily reminder server is running ✓', { headers: cors });
+      if (req.method === 'GET' && path === '/') return new Response('Juned Daily reminder server is running \u{2713}', { headers: cors });
       if (req.method === 'GET' && path === '/key') return json({ publicKey: (await vapidKeys(env)).publicKey });
       if (req.method === 'GET' && path === '/list') {
         if (!ALLOWED_ORIGINS.includes(origin)) return json({ error: 'forbidden' }, 403);
@@ -268,7 +268,7 @@ export default {
         const dev = devices[id];
         if (!dev) return json({ error: 'not registered' }, 404);
         const res = await sendPush(dev.subscription,
-          { title: '🔔 Notifications are on', body: 'Juned Daily will remind you at the times you set.', tag: 'test' },
+          { title: '\u{1f514} Notifications are on', body: 'Juned Daily will remind you at the times you set.', tag: 'test' },
           await vapidKeys(env));
         return json({ ok: res.ok, status: res.status });
       }
@@ -299,7 +299,7 @@ export default {
     const gone = new Set();
     await Promise.all(due.map(async ({ id, dev, r }) => {
       try {
-        const res = await sendPush(dev.subscription, { title: `⏰ ${r.title}`, body: 'Reminder from Juned Daily', tag: r.id }, keys);
+        const res = await sendPush(dev.subscription, { title: `\u{23f0} ${r.title}`, body: 'Reminder from Juned Daily', tag: r.id }, keys);
         if (res.status === 404 || res.status === 410) gone.add(id);   // device unsubscribed
       } catch { /* try again next time */ }
     }));
