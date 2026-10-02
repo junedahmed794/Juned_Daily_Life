@@ -177,6 +177,189 @@ function parseAmount(v) {
   return Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : null;
 }
 
+// ---------- weekly report (Excel) ----------
+const weekStart = k => addDays(k, -((parseKey(k).getDay() + 6) % 7));   // weeks run Monday–Sunday
+const createdKey = x => dateKey(new Date(x.created || 0));
+const avg = list => list.length ? list.reduce((s, n) => s + n, 0) / list.length : null;
+const excelDate = k => { const [y, m, d] = k.split('-').map(Number); return (Date.UTC(y, m - 1, d) - Date.UTC(1899, 11, 30)) / 864e5; };
+const fmtRange = (a, b) => `${parseKey(a).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })} – ${
+  parseKey(b).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}`;
+
+function weekStats(ws) {
+  const t = today(), we = addDays(ws, 6);
+  const days = Array.from({ length: 7 }, (_, i) => addDays(ws, i)).filter(d => d <= t);
+  const inWeek = d => d >= ws && d <= we;
+
+  let oneOffDone = 0, routineDue = 0, routineDone = 0;
+  for (const task of state.tasks) {
+    if (isRepeat(task)) {
+      for (const d of days) {
+        if (d < createdKey(task) || !dueOn(task, d)) continue;
+        routineDue++;
+        if (task.doneDates && task.doneDates[d]) routineDone++;
+      }
+    } else if (task.done && task.doneAt && inWeek(task.doneAt)) oneOffDone++;
+  }
+
+  const habits = state.habits.map(h => {
+    const possible = days.filter(d => d >= createdKey(h) || h.log[d]);
+    const done = possible.filter(d => h.log[d]).length;
+    return { label: `${h.emoji || ''} ${h.name}`.trim(), done, possible: possible.length, streak: streak(h) };
+  });
+  const hPossible = habits.reduce((s, h) => s + h.possible, 0);
+  const hDone = habits.reduce((s, h) => s + h.done, 0);
+
+  const money = state.expenses.filter(e => inWeek(e.date));
+  const outs = money.filter(e => e.type === 'out');
+  const spent = sum(outs), income = sum(money.filter(e => e.type === 'in'));
+  const byCat = {};
+  outs.forEach(e => { byCat[e.category] = (byCat[e.category] || 0) + e.amount; });
+  const cats = Object.entries(byCat).sort((a, b) => b[1] - a[1]);
+
+  const entries = days.map(d => state.journal[d]).filter(Boolean);
+  const nums = f => entries.map(e => e[f]).filter(n => typeof n === 'number');
+
+  const daily = days.map(d => ({
+    date: d,
+    tasks: state.tasks.filter(x => isRepeat(x) ? x.doneDates && x.doneDates[d] : x.done && x.doneAt === d).length,
+    habits: state.habits.filter(h => h.log[d]).length,
+    habitTotal: state.habits.filter(h => d >= createdKey(h) || h.log[d]).length,
+    spent: sum(outs.filter(e => e.date === d)),
+    mood: state.journal[d]?.mood,
+    sleep: state.journal[d]?.sleep,
+  }));
+
+  return {
+    ws, we, days, daily, habits, cats, spent, income, net: income - spent,
+    tasksDone: oneOffDone + routineDone, routineDue, routineDone,
+    routinePct: routineDue ? routineDone / routineDue : null,
+    habitPct: hPossible ? hDone / hPossible : null,
+    journalDays: entries.length,
+    avgMood: avg(nums('mood')), avgSleep: avg(nums('sleep')), avgEnergy: avg(nums('energy')),
+  };
+}
+
+function firstDataDay() {
+  const keys = [
+    ...state.tasks.map(createdKey), ...state.habits.map(createdKey),
+    ...state.habits.flatMap(h => Object.keys(h.log)),
+    ...state.expenses.map(e => e.date), ...Object.keys(state.journal),
+  ].filter(Boolean).sort();
+  return keys[0] || today();
+}
+
+function moneyFormat() {
+  let symbol = state.settings.currency, decimals = 2;
+  try {
+    const f = new Intl.NumberFormat('en', { style: 'currency', currency: state.settings.currency });
+    symbol = f.formatToParts(0).find(p => p.type === 'currency').value;
+    decimals = f.resolvedOptions().minimumFractionDigits;
+  } catch { /* keep defaults */ }
+  const num = decimals ? `#,##0.${'0'.repeat(decimals)}` : '#,##0';
+  const sym = `"${symbol.replace(/"/g, '')}"`;
+  return `${sym}${num};-${sym}${num}`;
+}
+
+function buildWeeklyReport(ws) {
+  const S = STYLE;
+  const s = weekStats(ws);
+  const H = v => ({ v, s: S.header });
+  const M = v => ({ v, s: S.money });
+  const P = v => v === null ? '—' : { v, s: S.pct };
+  const D1 = v => v === null ? '—' : { v, s: S.dec1 };
+
+  const rows = [
+    [{ v: 'Juned Daily — Weekly Summary', s: S.title }],
+    [{ v: fmtRange(s.ws, s.we), s: S.bold }],
+    [{ v: `Generated ${new Date().toLocaleString()}`, s: S.muted }],
+    [],
+    [H('Overview'), H('')],
+    ['Tasks completed', s.tasksDone],
+    ['Routines done', s.routineDue ? `${s.routineDone} of ${s.routineDue}` : '—'],
+    ['Habit completion', P(s.habitPct)],
+    ['Total spent', M(s.spent)],
+    ['Total income', M(s.income)],
+    ['Net', { v: s.net, s: S.moneyBold }],
+    ['Top spending category', s.cats.length ? s.cats[0][0] : '—'],
+    ['Journal days', `${s.journalDays} of ${s.days.length}`],
+    ['Average mood (1–5)', D1(s.avgMood)],
+    ['Average sleep (hours)', D1(s.avgSleep)],
+    ['Average energy (1–5)', D1(s.avgEnergy)],
+    [],
+  ];
+  if (s.habits.length) {
+    rows.push([H('Habit'), H('Days done'), H('Out of'), H('Completion'), H('Current streak')]);
+    s.habits.forEach(h => rows.push([h.label, h.done, h.possible, P(h.possible ? h.done / h.possible : null), h.streak]));
+    rows.push([]);
+  }
+  if (s.cats.length) {
+    rows.push([H('Spending category'), H('Amount'), H('Share')]);
+    s.cats.forEach(([c, v]) => rows.push([c, M(v), P(s.spent ? v / s.spent : null)]));
+    rows.push([]);
+  }
+  rows.push([H('Day'), H('Tasks done'), H('Habits done'), H('Spent'), H('Mood'), H('Sleep (h)')]);
+  s.daily.forEach(d => rows.push([
+    parseKey(d.date).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' }),
+    d.tasks, d.habitTotal ? `${d.habits} of ${d.habitTotal}` : '—', M(d.spent),
+    d.mood ? `${d.mood} ${MOODS[d.mood - 1]}` : '—', typeof d.sleep === 'number' ? d.sleep : '—',
+  ]));
+
+  // Weekly Tracker: one row per week, from the first week with data up to this one
+  const tracker = [[H('Week starting'), H('Week ending'), H('Tasks done'), H('Routines'), H('Habits'),
+    H('Spent'), H('Income'), H('Net'), H('Journal days'), H('Avg mood'), H('Avg sleep')]];
+  const lastWeek = weekStart(today());
+  for (let w = weekStart(firstDataDay()); w <= lastWeek; w = addDays(w, 7)) {
+    const x = weekStats(w);
+    tracker.push([
+      { v: excelDate(x.ws), s: S.date }, { v: excelDate(x.we), s: S.date },
+      x.tasksDone, P(x.routinePct), P(x.habitPct),
+      M(x.spent), M(x.income), M(x.net), x.journalDays, D1(x.avgMood), D1(x.avgSleep),
+    ]);
+  }
+
+  return makeXlsx([
+    { name: 'This Week', rows, widths: [26, 14, 12, 12, 15, 11] },
+    { name: 'Weekly Tracker', rows: tracker, widths: [15, 15, 11, 11, 10, 12, 12, 12, 13, 10, 10], freeze: 1 },
+  ], { moneyFormat: moneyFormat() });
+}
+
+// The week whose report is waiting: this week on Sundays, or last week early in the week if it was missed.
+function pendingReportWeek() {
+  const k = today(), ws = weekStart(k), dow = (parseKey(k).getDay() + 6) % 7;
+  const last = state.settings.lastReport || '';
+  if (dow === 6 && last < ws) return ws;
+  const prev = addDays(ws, -7);
+  if (dow <= 2 && last < prev && firstDataDay() <= addDays(prev, 6)) return prev;
+  return null;
+}
+
+async function exportReport(ws) {
+  let blob;
+  try { blob = buildWeeklyReport(ws); }
+  catch { toast('Could not create the report'); return; }
+  const ok = await shareOrDownload(blob, `juned-daily-week-${ws}.xlsx`);
+  if (!ok) return;
+  if ((state.settings.lastReport || '') < ws) { state.settings.lastReport = ws; save(); }
+  render();
+}
+
+// iPhone: opens the share sheet (Save to Files, Mail…). Elsewhere: downloads the file.
+async function shareOrDownload(blob, name) {
+  const file = new File([blob], name, { type: blob.type });
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try { await navigator.share({ files: [file] }); return true; }
+    catch (e) { if (e.name === 'AbortError') return false; }
+  }
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  return true;
+}
+
 // ---------- views ----------
 const views = {};
 
@@ -194,6 +377,15 @@ views.today = () => {
 
   return `
   <p class="greet">${greeting} · ${fmtLong(k)}</p>
+  ${(() => {
+    const ws = pendingReportWeek();
+    return ws ? `<section class="card report">
+      <h2>📊 Your weekly report is ready</h2>
+      <p class="meta">${fmtRange(ws, addDays(ws, 6))} · Excel file with your summary and weekly tracker</p>
+      <div class="btns"><button class="btn primary" data-action="report" data-week="${ws}">Export to Excel</button>
+      <button class="btn" data-action="report-skip" data-week="${ws}">Not now</button></div>
+    </section>` : '';
+  })()}
 
   <div class="stats">
     <div class="stat"><b>${doneN}/${tasks.length}</b><span>Tasks done</span></div>
@@ -442,6 +634,9 @@ function openSettings() {
     <label class="lbl">Currency
       <select id="currency">${CURRENCIES.map(c => `<option ${c === state.settings.currency ? 'selected' : ''}>${c}</option>`).join('')}</select>
     </label>
+    <h3>Weekly report</h3>
+    <p class="meta">An Excel file with this week's summary plus a Weekly Tracker sheet covering every week so far. Save it to Files or iCloud Drive.</p>
+    <div class="btns"><button type="button" class="btn" data-action="report" data-week="${weekStart(today())}">📊 Export this week (Excel)</button></div>
     <h3>Backup</h3>
     <p class="meta">Your data is stored only in this browser on this device. Export a backup now and then — and use it to move your data to another device.</p>
     <div class="btns">
@@ -457,11 +652,7 @@ function openSettings() {
 
 function exportData() {
   const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = `juned-daily-backup-${today()}.json`;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  shareOrDownload(blob, `juned-daily-backup-${today()}.json`);
 }
 
 async function importData(file) {
@@ -529,6 +720,11 @@ document.addEventListener('click', e => {
     case 'open-journal': ui.jdate = day; go('journal'); break;
 
     case 'export': exportData(); break;
+    case 'report': exportReport(b.dataset.week); break;
+    case 'report-skip':
+      state.settings.lastReport = b.dataset.week; save(); render();
+      toast('You can export it any time from ⚙︎ Settings');
+      break;
     case 'wipe':
       if (confirm('Erase ALL your Juned Daily data on this device? This cannot be undone.')
         && confirm('Are you absolutely sure? Consider exporting a backup first.')) {

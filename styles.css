@@ -242,3 +242,6 @@ dialog::backdrop { background: rgba(10, 10, 20, .45); }
   .add-row { flex-wrap: wrap; }
   .bar-row { grid-template-columns: 72px 1fr auto; }
 }
+
+.report { border-color: var(--accent); background: var(--accent-soft); }
+.report .btns { display: flex; gap: 8px; margin-top: 10px; }
