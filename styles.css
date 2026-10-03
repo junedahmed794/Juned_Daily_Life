@@ -323,8 +323,6 @@ details.card[open] > summary { margin-bottom: 4px; }
 
 /* ---------- shopping ---------- */
 .qty { font-size: 12px; font-weight: 700; color: var(--accent); background: var(--accent-soft); border-radius: 999px; padding: 1px 8px; margin-left: 4px; white-space: nowrap; }
-.share { margin-top: 22px; }
-.share .btns { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
 .tabs button { font-size: 10.5px; }
 .add-row.nowrap { flex-wrap: nowrap; }
 .add-row.nowrap select { flex: 1; min-width: 0; }

@@ -850,15 +850,7 @@ async function resetShopLink() {
   toast('New link ready — tap Share link to send it');
 }
 
-views.shop = () => PUSH_SERVER && Shop.mode !== 'shopping' ? `
-  ${Shop.html()}
-  <div class="card share">
-    <h2>👩 Shared with your wife</h2>
-    <p class="meta">Send her this link. It opens a shopping-only app — she can't see anything else in Juned Daily.
-      ${state.settings.notify ? 'You’ll get a 🔔 when she adds something.' : 'Turn on notifications in ⚙︎ Settings to get a 🔔 when she adds something.'}</p>
-    <div class="btns"><button class="btn primary" data-action="shop-share">Share link</button>
-      <button class="btn" data-action="shop-reset">New link</button></div>
-  </div>` : Shop.html();
+views.shop = () => Shop.html();
 
 // ---------- render ----------
 function render() {
@@ -1047,6 +1039,12 @@ function openSettings() {
     </label>
     <h3>Reminders</h3>
     ${notifySettings()}
+    ${PUSH_SERVER ? `<h3>🛒 Shared shopping list</h3>
+    <p class="meta">Send your wife this link. It opens a shopping-only app — she can't see anything else in Juned Daily.
+      ${state.settings.notify ? 'You’ll get a 🔔 when she adds something.' : 'Turn on notifications above to get a 🔔 when she adds something.'}
+      “New link” stops the old link from working.</p>
+    <div class="btns"><button type="button" class="btn" data-action="shop-share">📤 Share link</button>
+      <button type="button" class="btn" data-action="shop-reset">New link</button></div>` : ''}
     <h3>Weekly report</h3>
     <p class="meta">An Excel file with this week's summary plus a Weekly Tracker sheet covering every week so far. Save it to Files or iCloud Drive.</p>
     <div class="btns"><button type="button" class="btn" data-action="report" data-week="${weekStart(today())}">📊 Export this week (Excel)</button></div>
