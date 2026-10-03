@@ -379,3 +379,5 @@ details.card[open] > summary { margin-bottom: 4px; }
 .theme-opt small { color: var(--muted); font-size: 11px; }
 .swatch { display: flex; flex: none; border-radius: 999px; overflow: hidden; border: 1px solid rgba(0, 0, 0, .15); }
 .swatch i { width: 12px; height: 24px; }
+.chip.forget { border-color: var(--danger); color: var(--danger); }
+.chip.edit { border-style: dashed; color: var(--muted); }

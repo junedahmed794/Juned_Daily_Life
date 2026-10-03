@@ -34,6 +34,7 @@ const Shop = (() => {
   const blankDoc = () => ({ items: [], history: {}, staples: [], stores: [], order: Object.keys(SECTIONS), trips: [], shopping: null, currency: '' });
 
   const cfg = { code: '', name: '', device: '', currency: '', owner: false, onChange: () => {}, onMessage: () => {}, onLogMoney: null };
+  let editBuy = false;   // "Buy again" chips show ✕ to remove them
   let doc = blankDoc(), status = 'loading', pollTimer = null, busy = 0, wakeLock = null, refocus = false, dlg = null, draftOrder = [];
   let ui = { mode: 'list', store: '' };
 
@@ -200,9 +201,12 @@ const Shop = (() => {
     let list = [], label = '';
     if (q && !/[,;\n]/.test(q)) list = hist.filter(([k]) => k.startsWith(q) || k.includes(` ${q}`)).sort((a, b) => b[1].n - a[1].n).slice(0, 6);
     else if (!q) { list = hist.sort((a, b) => b[1].n - a[1].n || String(b[1].last).localeCompare(String(a[1].last))).slice(0, 12); label = 'Buy again'; }
-    if (!list.length) return '';
-    return `${label ? `<span class="chips-label">${label}</span>` : ''}${list.map(([k, h]) =>
-      `<button type="button" class="chip" data-shop="sugg" data-key="${esc(k)}">${(SECTIONS[h.cat] || SECTIONS.Other)[0]} ${esc(h.name)}</button>`).join('')}`;
+    if (!list.length) { editBuy = false; return ''; }
+    const editing = editBuy && !!label;
+    return `${label ? `<span class="chips-label">${label}</span>
+      <button type="button" class="chip edit" data-shop="buy-edit">${editing ? '✓ Done' : '✏️ Edit'}</button>` : ''}${list.map(([k, h]) => editing
+      ? `<button type="button" class="chip forget" data-shop="forget" data-key="${esc(k)}" aria-label="Remove ${esc(h.name)} from Buy again">${esc(h.name)} ✕</button>`
+      : `<button type="button" class="chip" data-shop="sugg" data-key="${esc(k)}">${(SECTIONS[h.cat] || SECTIONS.Other)[0]} ${esc(h.name)}</button>`).join('')}`;
   }
 
   function row(i, big) {
@@ -401,6 +405,19 @@ const Shop = (() => {
         if (h) addEntries([{ name: h.name, qty: '', cat: SECTIONS[h.cat] ? h.cat : 'Other', store: h.store || '' }]);
         const input = document.querySelector('[data-shop-add]');
         if (input) { input.value = ''; input.focus(); }
+        break;
+      }
+      case 'buy-edit': {
+        editBuy = !editBuy;
+        const box = document.getElementById('shopSugg');
+        if (box) box.innerHTML = suggestHtml('');
+        break;
+      }
+      case 'forget': {
+        const k = b.dataset.key, h = doc.history[k];
+        if (!h) break;
+        op({ op: 'forget', name: k }, () => { delete doc.history[k]; });
+        cfg.onMessage(`Removed ${h.name} from Buy again`);
         break;
       }
       case 'store': ui.store = b.dataset.store; saveUI(); cfg.onChange(); break;

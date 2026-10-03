@@ -262,6 +262,7 @@ function applyListOp(list, b) {
       }
       return {};
     case 'clear': list.items = list.items.filter(i => !i.done); return {};
+    case 'forget': delete list.history[keyOf(b.name)]; return {};   // remove from "Buy again"
     case 'wipe': list.items = []; list.staples = []; return {};   // old link retired
     case 'import':   // moving everything to a new link: only into an empty list
       if (!list.items.length && b.doc) {
