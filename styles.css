@@ -575,3 +575,5 @@ ul.plain li:last-child { border-bottom: 0; }
 .top-actions { display: flex; gap: 2px; align-items: center; }
 @keyframes spin { to { transform: rotate(360deg); } }
 [data-refresh].spinning svg { animation: spin .7s linear infinite; }
+.edit-btn { font-size: 16px; opacity: .7; }
+.edit-btn:hover, .edit-btn:active { opacity: 1; }

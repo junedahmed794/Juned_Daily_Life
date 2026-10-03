@@ -180,9 +180,36 @@ function taskRow(t, { check = true } = {}) {
   return `<li class="row ${done ? 'done' : ''}">
     <button class="check ${done ? 'on' : ''} ${check ? '' : 'ghost'}" data-action="toggle-task" data-id="${t.id}"
       aria-label="${done ? 'Mark not done' : 'Mark done'}: ${esc(t.title)}" ${check ? '' : 'tabindex="-1"'}></button>
-    <div class="grow"><div class="row-title">${esc(t.title)}</div>${meta ? `<div class="meta">${meta}</div>` : ''}</div>
-    ${bell}<button class="icon-btn" data-action="del-task" data-id="${t.id}" aria-label="Delete task">×</button>
+    <div class="grow tap" data-action="edit-task" data-id="${t.id}"><div class="row-title">${esc(t.title)}</div>${meta ? `<div class="meta">${meta}</div>` : ''}</div>
+    ${bell}<button class="icon-btn edit-btn" data-action="edit-task" data-id="${t.id}" aria-label="Edit task">✏️</button>
+    <button class="icon-btn" data-action="del-task" data-id="${t.id}" aria-label="Delete task">×</button>
   </li>`;
+}
+
+function openTaskEdit(id) {
+  const t = state.tasks.find(x => x.id === id);
+  if (!t) return;
+  // for repeating tasks the date sets which weekday / day of the month
+  let date = t.due || '';
+  if (!date && t.repeat === 'weekly') date = addDays(today(), (t.weekday - parseKey(today()).getDay() + 7) % 7);
+  if (!date && t.repeat === 'monthly') { const d = parseKey(today()); date = dateKey(new Date(d.getFullYear(), d.getMonth() + (d.getDate() > t.monthDay ? 1 : 0), t.monthDay)); }
+  const dlg = $('#sheet');
+  dlg.classList.remove('full');
+  dlg.innerHTML = `<form class="sheet" data-task-edit="${id}">
+    <h2>✏️ Edit task</h2>
+    <label class="lbl">Task<input name="title" value="${esc(t.title)}" maxlength="120" required></label>
+    <div class="two">
+      <label class="lbl">Date<input type="date" name="due" value="${date}"></label>
+      <label class="lbl">Repeat<select name="repeat">${Object.entries(REPEATS).map(([v, l]) => `<option value="${v}" ${v === (t.repeat || 'none') ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+    </div>
+    <label class="lbl">Time<select name="time"><option value="">🕘 No time</option>${timeOptions().replace(`value="${t.time}"`, `value="${t.time}" selected`)}</select></label>
+    <label class="toggle" style="margin-top:12px"><input type="checkbox" name="remind" ${t.remind ? 'checked data-user-set="1"' : ''}><span>🔔 Remind me</span></label>
+    <div class="btns spread" style="margin-top:18px">
+      <button type="button" class="btn danger" data-action="del-task" data-id="${id}">Delete</button>
+      <span class="btns"><button type="button" class="btn" data-action="close-sheet">Cancel</button><button class="btn primary">Save</button></span>
+    </div>
+  </form>`;
+  if (!dlg.open) dlg.showModal();
 }
 
 const taskSection = (title, list, emptyMsg, opts) => `
@@ -1264,7 +1291,8 @@ document.addEventListener('click', e => {
       celebrateDay(before);
       break;
     }
-    case 'del-task': removeWithUndo('tasks', id, 'Task'); break;
+    case 'del-task': if ($('#sheet').open) $('#sheet').close(); removeWithUndo('tasks', id, 'Task'); break;
+    case 'edit-task': openTaskEdit(id); break;
     case 'toggle-remind': {
       const t = state.tasks.find(x => x.id === id);
       if (!t) break;
@@ -1378,11 +1406,37 @@ document.addEventListener('click', e => {
 });
 
 document.addEventListener('submit', e => {
-  const f = e.target.closest('form[data-form]');
+  const f = e.target.closest('form[data-form], form[data-task-edit]');
   if (!f) return;
   e.preventDefault();
   const d = Object.fromEntries(new FormData(f));
   const kind = f.dataset.form;
+
+  if (f.dataset.taskEdit) {
+    const t = state.tasks.find(x => x.id === f.dataset.taskEdit);
+    if (!t) { $('#sheet').close(); return; }
+    const repeat = REPEATS[d.repeat] ? d.repeat : 'none';
+    let time = /^\d{2}:\d{2}$/.test(d.time || '') ? d.time : '';
+    const remind = !!d.remind;
+    let due = repeat === 'none' ? (d.due || null) : null;
+    if (remind && !time) {
+      if (repeat === 'none') ({ date: due, time } = defaultReminder(due));
+      else time = '09:00';
+    }
+    const base = d.due || today();
+    const wasRepeat = isRepeat(t);
+    Object.assign(t, {
+      title: (d.title || '').trim() || t.title, repeat, due, time, remind,
+      weekday: repeat === 'weekly' ? parseKey(base).getDay() : undefined,
+      monthDay: repeat === 'monthly' ? parseKey(base).getDate() : undefined,
+    });
+    if (wasRepeat && repeat === 'none') { t.done = false; t.doneAt = null; }   // a routine turned into a one-off starts fresh
+    t.doneDates = t.doneDates || {};
+    $('#sheet').close();
+    save(); render();
+    toast(remind && time ? `✏️ Saved · 🔔 ${fmtHM(time)}${due && due !== today() ? ` ${fmtDate(due).toLowerCase()}` : ''}` : '✏️ Task saved');
+    return;
+  }
 
   if (kind === 'task') {
     const title = (d.title || '').trim();
@@ -1460,7 +1514,7 @@ document.addEventListener('submit', e => {
 // Task form: picking a time or a date ticks 🔔 Remind me (unless you unticked it yourself)
 document.addEventListener('change', e => {
   const f = e.target.form;
-  if (!f || f.dataset.form !== 'task' || !f.remind) return;
+  if (!f || !(f.dataset.form === 'task' || f.dataset.taskEdit) || !f.remind) return;
   if (e.target === f.remind) { f.remind.dataset.userSet = '1'; return; }
   if ((e.target.name === 'time' || e.target.name === 'due') && !f.remind.dataset.userSet) {
     f.remind.checked = !!((f.time && f.time.value) || (f.due && f.due.value));
