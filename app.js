@@ -56,6 +56,7 @@ const defaults = () => ({
   office: { shifts: [], daysOff: [], tasks: [], meetings: [] },
   settings: {
     currency: guessCurrency(), workHours: 8, name: '', hiddenTabs: ['journal'], trackIncome: false,
+    privacy: { lock: false, blur: false, autoLock: 'tab', pinHash: '', pinSalt: '', pinLen: 0, credId: '' },
     nudges: { morning: { on: true, time: '08:00' }, habits: { on: true, time: '19:00' }, evening: { on: true, time: '21:00' } },
   },
 });
@@ -66,6 +67,7 @@ const hydrate = data => ({
   settings: {
     ...defaults().settings, ...(data.settings || {}),
     nudges: { ...defaults().settings.nudges, ...((data.settings || {}).nudges || {}) },
+    privacy: { ...defaults().settings.privacy, ...((data.settings || {}).privacy || {}) },
   },
   office: { ...defaults().office, ...(data.office || {}) },
 });
@@ -622,7 +624,7 @@ views.today = () => {
       <div class="grow">
         <div class="hero-msg">${dayMessage(p)}</div>
         <div class="meta">✅ ${p.tDone}/${p.tasks} tasks · 🔁 ${p.hDone}/${p.habits} habits</div>
-        <div class="meta">💸 ${money(spentToday)} spent today</div>
+        <div class="meta">💸 ${Privacy.pm(spentToday)} spent today${Privacy.masked() ? ' <button class="link eye" data-action="reveal" aria-label="Show amounts">👁</button>' : ''}</div>
         ${next ? `<div class="meta next-up">⏰ Next: <b>${esc(next.title)}</b> at ${fmtHM(next.time)}</div>` : ''}
         <button class="link" data-action="go" data-tab="insights">📊 Insights →</button>
       </div>
@@ -654,7 +656,7 @@ views.today = () => {
 
   <section class="card">
     <div class="card-head"><h2>Money</h2><button class="link" data-action="go" data-tab="money">Details →</button></div>
-    <div class="meta">This month: <strong>${money(spentMonth)}</strong> spent</div>
+    <div class="meta">This month: <strong>${Privacy.pm(spentMonth)}</strong> spent</div>
     <form class="quick" data-form="expense">
       <input type="hidden" name="type" value="out">
       <input name="amount" inputmode="decimal" placeholder="Amount" required aria-label="Amount" style="flex:1">
@@ -708,6 +710,7 @@ views.habits = () => `
     : '<p class="empty" style="text-align:center">Add habits you want to build — reading, exercise, prayer, water, sleep on time…</p>'}`;
 
 views.money = () => {
+  if (Privacy.locked()) return Privacy.lockScreen();
   const m = ui.month;
   const [y, mo] = m.split('-').map(Number);
   const label = new Date(y, mo - 1, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
@@ -908,6 +911,8 @@ function render() {
 }
 
 function go(tab) {
+  if (ui.tab === 'money' && tab !== 'money') Privacy.markAway();
+  if (tab === 'money') Privacy.markBack();
   ui.tab = tab;
   try { localStorage.setItem(KEY + ':tab', tab); } catch { /* ignore */ }
   render();
@@ -1117,6 +1122,7 @@ function openSettings() {
     <p class="meta">${counts}</p>
     <label class="toggle" style="margin-top:14px"><input type="checkbox" id="trackIncome" ${state.settings.trackIncome ? 'checked' : ''}>
       <span><b>💵 Track income too</b><small class="meta" style="display:block;font-weight:400">Off: Money is an expense tracker only. Any income you entered stays saved but hidden.</small></span></label>
+    ${Privacy.settingsHtml()}
     <span class="lbl">Tabs in the bottom bar</span>
     <div class="chips tab-picker">${OPTIONAL_TABS.map(t => `<button type="button" class="chip ${tabShown(t) ? 'on' : ''}" data-action="toggle-tab" data-tab="${t}" aria-pressed="${tabShown(t)}">${tabShown(t) ? '✓ ' : ''}${TABS[t]}</button>`).join('')}</div>
     <span class="lbl">Theme</span>
@@ -1181,7 +1187,11 @@ document.addEventListener('click', e => {
   const { action, id, day } = b.dataset;
 
   switch (action) {
-    case 'go': go(b.dataset.tab); break;
+    case 'go':
+      if (b.dataset.tab === 'money') Privacy.openMoney();   // Face ID prompt needs the tap
+      go(b.dataset.tab);
+      break;
+    case 'reveal': Privacy.reveal(); break;
     case 'settings': openSettings(); break;
 
     case 'toggle-task': {
@@ -1284,13 +1294,14 @@ document.addEventListener('click', e => {
       break;
     }
 
-    case 'export': exportData(); break;
-    case 'report': exportReport(b.dataset.week); break;
+    case 'export': if (Privacy.requireUnlock('To export a backup')) exportData(); break;
+    case 'report': if (Privacy.requireUnlock('To export the report')) exportReport(b.dataset.week); break;
     case 'report-skip':
       state.settings.lastReport = b.dataset.week; save(); render();
       toast('You can export it any time from ⚙︎ Settings');
       break;
     case 'wipe':
+      if (!Privacy.requireUnlock('To erase your data')) break;
       if (confirm('Erase ALL your Juned Daily data on this device? This cannot be undone.')
         && confirm('Are you absolutely sure? Consider exporting a backup first.')) {
         state = defaults(); save(); render(); $('#sheet').close();
@@ -1399,6 +1410,8 @@ document.addEventListener('change', e => {
   } else if (t.id === 'workHours') {
     const n = parseFloat(t.value);
     if (n > 0 && n <= 24) { state.settings.workHours = n; save(); render(); }
+  } else if (t.id === 'importFile' && t.files[0] && !Privacy.requireUnlock('To import a backup')) {
+    t.value = '';
   } else if (t.id === 'importFile' && t.files[0]) {
     importData(t.files[0]);
     t.value = '';

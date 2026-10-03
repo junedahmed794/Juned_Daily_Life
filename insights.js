@@ -52,7 +52,7 @@ function insightTiles(days) {
     ${tile(hPossible ? `${Math.round(hDone / hPossible * 100)}%` : '—', 'Habits kept')}
     ${tile(mood ? `${MOODS[Math.round(mood) - 1]} ${mood.toFixed(1)}` : '—', 'Average mood')}
     ${tile(sleep ? `${sleep.toFixed(1)}h` : '—', 'Average sleep')}
-    ${tile(money(spent), 'Spent')}
+    ${tile(Privacy.pm(spent), 'Spent')}
     ${tile(work ? `${work.toFixed(1)}h` : '—', 'Worked')}
   </div>`;
 }
@@ -143,20 +143,20 @@ function spendingChart() {
   const w = v => (W - L - R) * v / max;
   const rows = cats.map((c, i) => {
     const y0 = i * rowH;
-    return `<g class="mark" data-tip="${esc(c)} · this month ${money(a[c] || 0)} · last month ${money(b[c] || 0)}">
+    return `<g class="mark" data-tip="${esc(c)} · this month ${Privacy.pmText(a[c] || 0)} · last month ${Privacy.pmText(b[c] || 0)}">
       <rect class="hit" x="0" y="${y0}" width="${W}" height="${rowH}"/>
       <text class="axis label" x="${L - 8}" y="${y0 + 17}" text-anchor="end">${esc(c)}</text>
       ${a[c] ? `<rect class="bar" x="${L}" y="${y0 + 5}" width="${Math.max(2, w(a[c]))}" height="10" rx="3"/>` : ''}
       ${b[c] ? `<rect class="bar ghost" x="${L}" y="${y0 + 17}" width="${Math.max(2, w(b[c]))}" height="6" rx="3"/>` : ''}
-      <text class="axis value" x="${L + Math.max(w(a[c] || 0), w(b[c] || 0)) + 6}" y="${y0 + 15}">${a[c] ? money(a[c]) : '—'}</text>
+      <text class="axis value" x="${L + Math.max(w(a[c] || 0), w(b[c] || 0)) + 6}" y="${y0 + 15}">${a[c] ? Privacy.pmText(a[c]) : '—'}</text>
     </g>`;
   }).join('');
   // fair comparison: the same days of last month (1st → today's date)
   const upTo = parseKey(k).getDate();
   const tbSame = out.filter(e => e.date.startsWith(lastM) && parseKey(e.date).getDate() <= upTo).reduce((s, e) => s + e.amount, 0);
   const change = tbSame ? Math.round((ta - tbSame) / tbSame * 100) : null;
-  const head = `<div class="hero-num"><b>${money(ta)}</b> <span class="meta">this month so far${change === null ? '' : ` · ${change >= 0 ? '▲' : '▼'} ${Math.abs(change)}% vs the same days last month (${money(tbSame)})`}</span></div>
-    <div class="meta" style="margin-bottom:6px">Last month in total: ${money(tb)}</div>
+  const head = `<div class="hero-num"><b>${Privacy.pmText(ta)}</b> <span class="meta">this month so far${change === null ? '' : ` · ${change >= 0 ? '▲' : '▼'} ${Math.abs(change)}% vs the same days last month (${Privacy.pmText(tbSame)})`}</span></div>
+    <div class="meta" style="margin-bottom:6px">Last month in total: ${Privacy.pmText(tb)}</div>
     <div class="legend"><span><i class="sw bar"></i>This month</span><span><i class="sw ghost"></i>Last month</span></div>`;
   return chartFigure('💰 Spending by category', `<svg viewBox="0 0 ${W} ${H}" class="plot" role="img" aria-label="Spending by category, this month compared with last month">${rows}</svg>`, 'Tap a category for both months', head);
 }

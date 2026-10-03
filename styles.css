@@ -470,3 +470,16 @@ main { padding-bottom: 84px; }
 #settingsBtn { font-size: 30px; }
 html { touch-action: manipulation; -webkit-text-size-adjust: 100%; }   /* no double-tap zoom */
 input, select, textarea { font-size: max(16px, 1em); }                 /* iPhone won't zoom into a text box */
+
+/* ---------- money privacy ---------- */
+.masked { letter-spacing: 2px; color: var(--muted); cursor: pointer; font-weight: 700; }
+.eye { padding: 0 4px; font-size: 15px; }
+.lock-card { padding: 28px 20px; margin-top: 20px; }
+.lock-icon { font-size: 44px; line-height: 1; margin-bottom: 8px; }
+.lock-card .btn.block { margin-top: 16px; min-height: 50px; font-size: 17px; }
+.pin-form { display: flex; gap: 8px; margin-top: 12px; }
+.pin-input { text-align: center; font-size: 26px !important; letter-spacing: 10px; min-height: 52px; }
+#lockSheet .pin-input { margin-top: 12px; }
+.pin-msg { min-height: 20px; margin: 8px 0 0; }
+.toggle span:has(> small) { display: flex; flex-direction: column; line-height: 1.25; }
+.toggle small { color: var(--muted); font-weight: 400; font-size: 12px; }
