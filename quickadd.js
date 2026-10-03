@@ -184,9 +184,10 @@ function quickPreview(p) {
 function openQuick() {
   quickType = 'auto';
   const dlg = $('#sheet');
+  dlg.classList.remove('full');
   dlg.innerHTML = `<form class="sheet quick-sheet" data-quick>
     <h2>Quick add</h2>
-    <input name="q" placeholder="Type anything…" autocomplete="off" enterkeyhint="done" aria-label="What do you want to add?">
+    <input name="q" placeholder="${esc(firstName() ? `What’s next, ${firstName()}?` : 'Type anything…')}" autocomplete="off" enterkeyhint="done" aria-label="What do you want to add?">
     <div class="chips qtypes" role="radiogroup" aria-label="Type">${Object.entries(QUICK_TYPES).filter(([k]) => k !== 'income' || state.settings.trackIncome).map(([k, l]) =>
       `<button type="button" class="chip ${k === 'auto' ? 'on' : ''}" data-qtype="${k}" role="radio" aria-checked="${k === 'auto'}">${l}</button>`).join('')}</div>
     <div class="qpreview" id="qpreview" aria-live="polite">${quickPreview(null)}</div>

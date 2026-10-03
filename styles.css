@@ -483,3 +483,45 @@ input, select, textarea { font-size: max(16px, 1em); }                 /* iPhone
 .pin-msg { min-height: 20px; margin: 8px 0 0; }
 .toggle span:has(> small) { display: flex; flex-direction: column; line-height: 1.25; }
 .toggle small { color: var(--muted); font-weight: 400; font-size: 12px; }
+
+/* ---------- ☰ menu & settings pages ---------- */
+.menu-btn { color: var(--text); display: flex; align-items: center; justify-content: center; }
+#sheet.full {
+  width: 100%; max-width: 640px; height: 100%; max-height: 100%; margin: 0 auto;
+  border-radius: 0; box-shadow: none;
+}
+#sheet.full .sheet { padding: calc(10px + env(safe-area-inset-top)) 18px calc(28px + env(safe-area-inset-bottom)); }
+.sheet-head {
+  position: sticky; top: calc(-10px - env(safe-area-inset-top)); z-index: 2; background: var(--surface);
+  display: flex; align-items: center; gap: 8px; padding: 8px 0 12px; margin-bottom: 4px;
+}
+.sheet-head h2 { flex: 1; margin: 0; font-size: 26px; letter-spacing: -.02em; }
+.sheet-head .back { font-size: 17px; padding: 6px 8px 6px 0; white-space: nowrap; }
+.sheet-head .back + h2 { font-size: 20px; text-align: center; }
+.close-x { font-size: 22px; color: var(--muted); }
+
+/* bigger, easier settings */
+.settings { font-size: 17px; }
+.settings .lbl { font-size: 15px; margin-top: 20px; }
+.settings h3 { font-size: 17px; margin: 26px 0 8px; }
+.settings .meta { font-size: 14px; }
+.settings .btn { min-height: 48px; font-size: 16px; padding: 10px 16px; }
+.settings input, .settings select { min-height: 48px; font-size: 17px; }
+.settings .toggle { min-height: 56px; padding: 10px 14px; font-size: 16px; }
+.settings .toggle input { width: 24px; height: 24px; }
+.settings .chip { padding: 10px 16px; font-size: 15px; }
+
+.menu-list { background: var(--bg); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; margin-top: 8px; }
+.menu-row {
+  display: flex; align-items: center; gap: 14px; width: 100%; text-align: left;
+  border: 0; border-bottom: 1px solid var(--line); background: var(--surface);
+  padding: 14px 14px; min-height: 68px;
+}
+.menu-row:last-child { border-bottom: 0; }
+.menu-row:active { background: var(--accent-soft); }
+.menu-row b { display: block; font-size: 17px; }
+.menu-row small { display: block; color: var(--muted); font-size: 13px; margin-top: 2px; }
+.menu-icon { font-size: 26px; width: 34px; text-align: center; flex: none; }
+.chev { color: var(--muted); font-size: 26px; line-height: 1; }
+.toggle input { flex: none; }
+.settings .toggle input { width: 24px !important; height: 24px !important; }

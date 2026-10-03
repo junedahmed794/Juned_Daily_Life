@@ -38,7 +38,7 @@ function animateRing(pct) {
 
 function dayMessage(p) {
   if (!p.total) return 'A fresh day — add a task or a habit';
-  if (p.pct >= 1) return 'All done — amazing! 🎉';
+  if (p.pct >= 1) return `${withName('All done — amazing')}! 🎉`;
   if (p.pct >= 0.75) return 'Almost there!';
   if (p.pct >= 0.4) return 'Good progress — keep going 💪';
   if (p.done) return 'Nice start!';
@@ -85,7 +85,7 @@ function celebrateDay(before) {
   const after = dayProgress();
   if (after.total && after.pct >= 1 && before.pct < 1) {
     confetti();
-    toast('🎉 Everything done for today — well done!');
+    toast(`🎉 ${withName('Everything done for today')} — well done!`);
     return true;
   }
   return false;
@@ -95,6 +95,6 @@ function celebrateStreak(h) {
   const s = streak(h);
   if (!h.log[today()] || !STREAK_MILESTONES.includes(s)) return false;
   confetti();
-  toast(`🔥 ${s}-day streak: ${h.emoji || ''} ${h.name}!`);
+  toast(`🔥 ${withName(`${s}-day streak`)}! ${h.emoji || ''} ${h.name}`);
   return true;
 }

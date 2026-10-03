@@ -180,7 +180,7 @@ const Privacy = (() => {
     return `<div class="card lock-card center">
       <div class="lock-icon">🔒</div>
       <h2>Expense is locked</h2>
-      <p class="meta">Your spending is private.</p>
+      <p class="meta">${esc(withName('Your spending is private'))}.</p>
       ${p.credId ? '<button type="button" class="btn primary block" data-privacy-act="unlock-face">😀 Unlock with Face ID</button>' : ''}
       <form data-privacy="unlock" class="pin-form">${pinInput()}<button class="btn ${p.credId ? '' : 'primary'}">Unlock with PIN</button></form>
       <p class="meta overdue pin-msg" aria-live="polite"></p>

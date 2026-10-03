@@ -97,6 +97,10 @@ try { const t = localStorage.getItem(KEY + ':tab'); if (TABS[t]) ui.tab = t; } c
 }
 let justToggled = null;   // gives the tick that was just tapped a little "pop"
 
+// First name from Settings, for a personal touch ("Good evening, Sam")
+const firstName = () => String(state.settings.name || '').trim().split(/\s+/)[0];
+const withName = (text, sep = ', ') => (firstName() ? `${text}${sep}${firstName()}` : text);
+
 // ---------- tasks ----------
 const REPEATS = { none: 'One-time', daily: 'Every day', weekdays: 'Weekdays (Mon–Fri)', weekly: 'Every week', monthly: 'Every month' };
 const isRepeat = t => t.repeat in REPEATS && t.repeat !== 'none';
@@ -606,7 +610,7 @@ views.today = () => {
   const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
 
   return `
-  <p class="greet">${greeting} · ${fmtLong(k)}</p>
+  <p class="greet">${esc(withName(greeting))} · ${fmtLong(k)}</p>
   ${(() => {
     const ws = pendingReportWeek();
     return ws ? `<section class="card report">
@@ -689,7 +693,7 @@ views.tasks = () => {
       <label class="toggle"><input type="checkbox" name="remind"><span>🔔 Remind me</span></label>
     </div>
     <button class="btn primary block" style="margin-top:8px">Add task</button>
-    ${!state.settings.notify ? '<p class="meta hint">To get 🔔 reminders, turn on notifications in ⚙︎ Settings.</p>' : ''}
+    ${!state.settings.notify ? '<p class="meta hint">To get 🔔 reminders, turn on notifications in ☰ Menu → Notifications.</p>' : ''}
   </form>
   ${taskSection('Today', now, 'Nothing due today. Enjoy! 🎉')}
   ${upcoming.length ? taskSection('Upcoming', upcoming) : ''}
@@ -995,7 +999,7 @@ function nudgeList() {
     const d = nextDay(n.morning.time), tasks = tasksOn(d), habits = state.habits.length;
     const first = tasks.filter(t => t.time).sort((a, b) => a.time.localeCompare(b.time))[0];
     const parts = [tasks.length && `${tasks.length} task${tasks.length === 1 ? '' : 's'}`, habits && `${habits} habit${habits === 1 ? '' : 's'}`].filter(Boolean);
-    out.push({ id: 'nudge-morning', kind: 'nudge', title: 'Good morning ☀️', time: n.morning.time, repeat: 'daily', start: k,
+    out.push({ id: 'nudge-morning', kind: 'nudge', title: `${withName('Good morning')} ☀️`, time: n.morning.time, repeat: 'daily', start: k,
       body: parts.length ? `Today: ${parts.join(' and ')}${first ? ` · first up: ${first.title} at ${fmtHM(first.time)}` : ''}` : 'A fresh day — plan something good.',
       bodyDate: d, fallback: 'Open Juned Daily to plan your day.', url: './?tab=today', skip: [] });
   }
@@ -1009,7 +1013,7 @@ function nudgeList() {
       skip: [k, addDays(k, 1)].filter(x => state.habits.every(h => h.log[x])) });
   }
   if (n.evening.on) {
-    out.push({ id: 'nudge-evening', kind: 'nudge', title: '🌙 How was your day?', time: n.evening.time, repeat: 'daily', start: k,
+    out.push({ id: 'nudge-evening', kind: 'nudge', title: `🌙 ${withName('How was your day')}?`, time: n.evening.time, repeat: 'daily', start: k,
       body: tabShown('journal') ? 'Tap to log your mood and a few words.' : 'Tap to log your mood for today.', bodyDate: '', fallback: 'Tap to log your mood and a few words.', url: tabShown('journal') ? './?tab=journal' : './?tab=today',
       skip: [k].filter(x => state.journal[x] && state.journal[x].mood) });
   }
@@ -1110,54 +1114,94 @@ function notifySettings() {
     <div class="btns"><button type="button" class="btn primary" data-action="notify-on">🔔 Turn on notifications</button></div>`;
 }
 
-const refreshSettings = () => { if ($('#sheet').open) openSettings(); };
+const refreshSettings = () => { if ($('#sheet').open && $('#sheet [data-settings]')) openSettings(settingsPage); };
 
 // ---------- settings ----------
-function openSettings() {
-  const dlg = $('#sheet');
-  const counts = `${state.tasks.length} tasks · ${state.habits.length} habits · ${state.expenses.length} money entries · ${Object.keys(state.journal).length} journal days · ${state.office.shifts.length} work entries · ${state.office.meetings.length} meetings`;
-  dlg.innerHTML = `
-  <form method="dialog" class="sheet">
-    <h2>Settings</h2>
-    <p class="meta">${counts}</p>
-    <label class="toggle" style="margin-top:14px"><input type="checkbox" id="trackIncome" ${state.settings.trackIncome ? 'checked' : ''}>
-      <span><b>💵 Track income too</b><small class="meta" style="display:block;font-weight:400">Off: Expense is a spending tracker only. Any income you entered stays saved but hidden.</small></span></label>
-    ${Privacy.settingsHtml()}
-    <span class="lbl">Tabs in the bottom bar</span>
-    <div class="chips tab-picker">${OPTIONAL_TABS.map(t => `<button type="button" class="chip ${tabShown(t) ? 'on' : ''}" data-action="toggle-tab" data-tab="${t}" aria-pressed="${tabShown(t)}">${tabShown(t) ? '✓ ' : ''}${TABS[t]}</button>`).join('')}</div>
-    <span class="lbl">Theme</span>
-    ${themePickerHtml()}
-    <label class="lbl">Currency
-      <select id="currency">${CURRENCIES.map(c => `<option ${c === state.settings.currency ? 'selected' : ''}>${c}</option>`).join('')}</select>
-    </label>
-    <label class="lbl">Your name — shown on the shared shopping list
-      <input id="myName" maxlength="30" autocomplete="given-name" placeholder="Your name" value="${esc(state.settings.name || '')}">
-    </label>
-    <label class="lbl">Work day length (hours) — used for overtime
-      <input type="number" id="workHours" min="1" max="24" step="0.5" inputmode="decimal" value="${state.settings.workHours}">
-    </label>
-    <h3>Reminders</h3>
-    ${notifySettings()}
-    ${PUSH_SERVER ? `<h3>🛒 Shared shopping list</h3>
-    <p class="meta">Send this link to anyone you shop with. It opens a shopping-only app — they can't see anything else in Juned Daily.
-      ${state.settings.notify ? 'You’ll get a 🔔 when they add something.' : 'Turn on notifications above to get a 🔔 when they add something.'}
-      “New link” stops the old link from working.</p>
-    <div class="btns"><button type="button" class="btn" data-action="shop-share">📤 Share link</button>
-      <button type="button" class="btn" data-action="shop-reset">New link</button></div>` : ''}
-    <h3>Weekly report</h3>
-    <p class="meta">An Excel file with this week's summary plus a Weekly Tracker sheet covering every week so far. Save it to Files or iCloud Drive.</p>
-    <div class="btns"><button type="button" class="btn" data-action="report" data-week="${weekStart(today())}">📊 Export this week (Excel)</button></div>
-    <h3>Backup</h3>
-    <p class="meta">Your data is stored only in this browser on this device. Export a backup now and then — and use it to move your data to another device.</p>
-    <div class="btns">
-      <button type="button" class="btn" data-action="export">⬇︎ Export backup</button>
-      <label class="btn">⬆︎ Import backup<input type="file" id="importFile" accept="application/json,.json" hidden></label>
+// ---------- menu & settings (grouped into pages) ----------
+const SETTINGS_PAGES = {
+  appearance: ['🎨', 'You & appearance', 'Your name, theme and tabs'],
+  notifications: ['🔔', 'Notifications', 'Task reminders and daily nudges'],
+  expense: ['🧾', 'Expense', 'Currency, income, Face ID lock'],
+  shopping: ['🛒', 'Shopping', 'Share the list with family'],
+  work: ['💼', 'Work', 'Work day length and overtime'],
+  data: ['📦', 'Reports & data', 'Weekly Excel, backup, erase'],
+};
+let settingsPage = 'menu';
+
+function settingsBody(page) {
+  switch (page) {
+    case 'appearance': return `
+      <label class="lbl">Your name — used in greetings and on the shared shopping list
+        <input id="myName" maxlength="30" autocomplete="given-name" placeholder="Your name" value="${esc(state.settings.name || '')}">
+      </label>
+      <span class="lbl">Theme</span>
+      ${themePickerHtml()}
+      <span class="lbl">Tabs in the bottom bar</span>
+      <p class="meta">Tap to show or hide. Today always stays.</p>
+      <div class="chips tab-picker">${OPTIONAL_TABS.map(t => `<button type="button" class="chip ${tabShown(t) ? 'on' : ''}" data-action="toggle-tab" data-tab="${t}" aria-pressed="${tabShown(t)}">${tabShown(t) ? '✓ ' : ''}${TABS[t]}</button>`).join('')}</div>`;
+    case 'notifications': return notifySettings();
+    case 'expense': return `
+      <label class="lbl">Currency
+        <select id="currency">${CURRENCIES.map(c => `<option ${c === state.settings.currency ? 'selected' : ''}>${c}</option>`).join('')}</select>
+      </label>
+      <label class="toggle" style="margin-top:16px"><input type="checkbox" id="trackIncome" ${state.settings.trackIncome ? 'checked' : ''}>
+        <span><b>💵 Track income too</b><small>Off: Expense is a spending tracker only. Any income you entered stays saved but hidden.</small></span></label>
+      ${Privacy.settingsHtml()}`;
+    case 'shopping': return `
+      ${PUSH_SERVER ? `<h3 style="margin-top:8px">Share the list</h3>
+      <p class="meta">Send this link to anyone you shop with. It opens a shopping-only app — they can't see anything else in Juned Daily.
+        ${state.settings.notify ? 'You’ll get a 🔔 when they add something.' : 'Turn on notifications (Menu → Notifications) to get a 🔔 when they add something.'}
+        “New link” stops the old link from working.</p>
+      <div class="btns"><button type="button" class="btn" data-action="shop-share">📤 Share link</button>
+        <button type="button" class="btn" data-action="shop-reset">New link</button></div>` : '<p class="meta">The shopping list isn’t connected.</p>'}`;
+    case 'work': return `
+      <label class="lbl">Work day length (hours) — used for overtime
+        <input type="number" id="workHours" min="1" max="24" step="0.5" inputmode="decimal" value="${state.settings.workHours}">
+      </label>`;
+    case 'data': return `
+      <h3>Weekly report</h3>
+      <p class="meta">An Excel file with this week's summary plus a Weekly Tracker sheet covering every week so far. Save it to Files or iCloud Drive.</p>
+      <div class="btns"><button type="button" class="btn" data-action="report" data-week="${weekStart(today())}">📊 Export this week (Excel)</button></div>
+      <h3>Backup</h3>
+      <p class="meta">Your data is stored only on this phone. Export a backup now and then — and use it to move your data to another device.</p>
+      <div class="btns">
+        <button type="button" class="btn" data-action="export">⬇︎ Export backup</button>
+        <label class="btn">⬆︎ Import backup<input type="file" id="importFile" accept="application/json,.json" hidden></label>
+      </div>
+      <h3>Danger zone</h3>
+      <button type="button" class="btn danger" data-action="wipe">Erase all data</button>`;
+  }
+  // the menu itself
+  const counts = `${state.tasks.length} tasks · ${state.habits.length} habits · ${state.expenses.length} expenses · ${state.office.shifts.length} work entries`;
+  const row = (icon, title, sub, attrs) => `<button type="button" class="menu-row" ${attrs}>
+      <span class="menu-icon">${icon}</span><span class="grow"><b>${title}</b><small>${sub}</small></span><span class="chev">›</span></button>`;
+  return `
+    <div class="menu-list">
+      ${row('📊', 'Insights', 'Charts of your habits, mood, spending and work', 'data-action="menu-go" data-tab="insights"')}
     </div>
-    <h3>Danger zone</h3>
-    <button type="button" class="btn danger" data-action="wipe">Erase all data</button>
-    <div class="btns" style="justify-content:flex-end;margin-top:22px"><button class="btn primary">Done</button></div>
+    <span class="lbl">Settings</span>
+    <div class="menu-list">
+      ${Object.entries(SETTINGS_PAGES).filter(([k]) => k !== 'shopping' || PUSH_SERVER)
+        .map(([k, [icon, title, sub]]) => row(icon, title, sub, `data-action="settings-page" data-page="${k}"`)).join('')}
+    </div>
+    <p class="meta center" style="margin-top:18px">${counts}</p>`;
+}
+
+function openSettings(page = settingsPage) {
+  settingsPage = SETTINGS_PAGES[page] ? page : 'menu';
+  const dlg = $('#sheet');
+  const [, title] = SETTINGS_PAGES[settingsPage] || [];
+  dlg.classList.add('full');
+  dlg.innerHTML = `
+  <form method="dialog" class="sheet settings" data-settings>
+    <div class="sheet-head">
+      ${settingsPage === 'menu' ? `<h2>${firstName() ? `Hi, ${esc(firstName())} 👋` : 'Menu'}</h2>` : `<button type="button" class="link back" data-action="settings-page" data-page="menu">‹ Menu</button><h2>${title}</h2>`}
+      <button type="button" class="icon-btn close-x" data-action="close-sheet" aria-label="Close">✕</button>
+    </div>
+    ${settingsBody(settingsPage)}
   </form>`;
   if (!dlg.open) dlg.showModal();
+  dlg.scrollTop = 0;
 }
 
 function exportData() {
@@ -1192,7 +1236,9 @@ document.addEventListener('click', e => {
       go(b.dataset.tab);
       break;
     case 'reveal': Privacy.reveal(); break;
-    case 'settings': openSettings(); break;
+    case 'settings': openSettings('menu'); break;
+    case 'settings-page': openSettings(b.dataset.page); break;
+    case 'menu-go': $('#sheet').close(); go(b.dataset.tab); break;
 
     case 'toggle-task': {
       const before = dayProgress();
@@ -1205,7 +1251,7 @@ document.addEventListener('click', e => {
       const t = state.tasks.find(x => x.id === id);
       if (!t) break;
       t.remind = !t.remind; save(); render();
-      if (t.remind && !state.settings.notify) toast('Turn on notifications in ⚙︎ Settings to get reminders');
+      if (t.remind && !state.settings.notify) toast('Turn on notifications in ☰ Menu → Notifications to get reminders');
       else toast(t.remind ? `🔔 Reminder on for ${fmtHM(t.time)}` : 'Reminder off');
       break;
     }
@@ -1215,7 +1261,7 @@ document.addEventListener('click', e => {
       if (hidden.has(t)) hidden.delete(t); else hidden.add(t);
       state.settings.hiddenTabs = [...hidden];
       save(); render(); refreshSettings();
-      toast(hidden.has(t) ? `${TABS[t]} tab hidden — turn it back on here any time` : `${TABS[t]} tab shown`);
+      toast(hidden.has(t) ? `${TABS[t]} tab hidden — turn it back on in ☰ Menu → Appearance` : `${TABS[t]} tab shown`);
       break;
     }
     case 'close-sheet': $('#sheet').close(); break;
@@ -1298,7 +1344,7 @@ document.addEventListener('click', e => {
     case 'report': if (Privacy.requireUnlock('To export the report')) exportReport(b.dataset.week); break;
     case 'report-skip':
       state.settings.lastReport = b.dataset.week; save(); render();
-      toast('You can export it any time from ⚙︎ Settings');
+      toast('You can export it any time from ☰ Menu → Reports & data');
       break;
     case 'wipe':
       if (!Privacy.requireUnlock('To erase your data')) break;
@@ -1335,7 +1381,7 @@ document.addEventListener('submit', e => {
       monthDay: repeat === 'monthly' ? parseKey(base).getDate() : undefined,
       done: false, doneAt: null, doneDates: {},
     });
-    if (remind && !state.settings.notify) toast('Saved — turn on notifications in ⚙︎ Settings to get the reminder');
+    if (remind && !state.settings.notify) toast('Saved — turn on notifications in ☰ Menu → Notifications to get the reminder');
     else if (remind) toast(`🔔 Reminder set for ${fmtHM(time)}`);
   } else if (kind === 'habit') {
     const name = (d.name || '').trim();
@@ -1406,7 +1452,7 @@ document.addEventListener('change', e => {
     state.settings.nudges[t.dataset.nudgeTime].time = t.value; save();
     toast(`${NUDGES[t.dataset.nudgeTime][0]} at ${fmtHM(t.value)}`);
   } else if (t.id === 'myName') {
-    state.settings.name = t.value.trim().slice(0, 30) || 'Me'; save(); startShop();
+    state.settings.name = t.value.trim().slice(0, 30); save(); startShop(); render(); refreshSettings();
   } else if (t.id === 'workHours') {
     const n = parseFloat(t.value);
     if (n > 0 && n <= 24) { state.settings.workHours = n; save(); render(); }
@@ -1453,6 +1499,9 @@ function checkDay() {
 }
 document.addEventListener('visibilitychange', () => { if (!document.hidden) checkDay(); });
 setInterval(checkDay, 60 * 1000);
+
+// settings use a full-screen sheet; other sheets (quick add) don't
+$('#sheet').addEventListener('close', () => { if (!$('#sheet').open) $('#sheet').classList.remove('full'); });
 
 // ---------- boot ----------
 startShop();
