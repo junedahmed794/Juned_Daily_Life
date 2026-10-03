@@ -10,7 +10,7 @@ const MyTasks = (() => {
   const KEY = 'my-tasks';
   const REPEATS = { none: 'One-time', daily: 'Every day', weekdays: 'Weekdays (Mon–Fri)', weekly: 'Every week', monthly: 'Every month' };
   const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-  const cfg = { onChange: () => {}, onMessage: () => {}, onSave: () => {}, shareNote: () => '' };
+  const cfg = { onChange: () => {}, onMessage: () => {}, onSave: () => {} };
   let dlg = null;
 
   // ---------- helpers ----------
@@ -136,8 +136,7 @@ const MyTasks = (() => {
     const upcoming = tasks.filter(t => !isRepeat(t) && !t.done && t.due && t.due > k).sort((a, b) => a.due.localeCompare(b.due));
     const routines = tasks.filter(t => isRepeat(t) && !dueOn(t, k));
     const done = tasks.filter(t => !isRepeat(t) && t.done && t.doneAt !== k).sort((a, b) => (b.doneAt || '').localeCompare(a.doneAt || '')).slice(0, 15);
-    return `${cfg.shareNote()}
-      <form class="card add" data-mt-form>
+    return `<form class="card add" data-mt-form>
         <input name="title" placeholder="What do you need to do?" required autocomplete="off" aria-label="New task" maxlength="120">
         ${formFields()}
         <button class="btn primary block" style="margin-top:8px">Add task</button>
@@ -145,7 +144,8 @@ const MyTasks = (() => {
       ${section('Today', now, 'Nothing for today 🎉')}
       ${upcoming.length ? section('Upcoming', upcoming) : ''}
       ${routines.length ? section('Other routines', routines, '', false) : ''}
-      ${done.length ? section('Completed', done) : ''}`;
+      ${done.length ? section('Completed', done) : ''}
+      <p class="meta hint center">🔒 Only you can see these — they’re stored on this phone.</p>`;
   }
 
   function sheet(inner) {
@@ -246,7 +246,6 @@ const MyTasks = (() => {
   return {
     init(options) { Object.assign(cfg, options); },
     html, reminders,
-    all: () => tasks,
     count: () => todays().filter(t => !isDone(t)).length,
     isTyping: () => { const a = document.activeElement; return !!(a && a.closest && a.closest('[data-mt-form]') && (a.tagName === 'SELECT' || (a.value || '').length)); },
   };

@@ -212,40 +212,6 @@ function openTaskEdit(id) {
   if (!dlg.open) dlg.showModal();
 }
 
-// View-only list of tasks someone shared with you
-async function openPartnerTasks(dev) {
-  await Shop.refresh();
-  const p = Shop.sharedTasks().find(x => x.dev === dev);
-  if (!p) { toast('Those tasks aren’t shared any more'); render(); return; }
-  const k = today();
-  const doneOn = t => (isRepeat(t) ? !!(t.doneDates || {})[k] : !!t.done);
-  const row = (t, check = true) => {
-    let meta = isRepeat(t) ? repeatLabel(t) : t.done && t.doneAt ? `Done ${fmtDate(t.doneAt).toLowerCase()}`
-      : t.due ? (t.due < k ? `<span class="overdue">Overdue · ${fmtDate(t.due)}</span>` : fmtDate(t.due)) : '';
-    if (t.time) meta += `${meta ? ' · ' : ''}🕘 ${fmtHM(t.time)}`;
-    const done = check && doneOn(t);
-    return `<li class="row ${done ? 'done' : ''}"><span class="check ${done ? 'on' : ''} ${check ? '' : 'ghost'}" aria-hidden="true"></span>
-      <div class="grow"><div class="row-title">${esc(t.title)}</div>${meta ? `<div class="meta">${meta}</div>` : ''}</div></li>`;
-  };
-  const now = p.tasks.filter(t => isRepeat(t) ? dueOn(t, k) : (!t.done && (!t.due || t.due <= k)) || (t.done && t.doneAt === k))
-    .sort((a, b) => doneOn(a) - doneOn(b) || (a.time || '99').localeCompare(b.time || '99'));
-  const upcoming = p.tasks.filter(t => !isRepeat(t) && !t.done && t.due && t.due > k).sort((a, b) => a.due.localeCompare(b.due));
-  const routines = p.tasks.filter(t => isRepeat(t) && !dueOn(t, k));
-  const sec = (title, list, check) => list.length ? `<h3 class="sec">${title}</h3><ul class="list">${list.map(t => row(t, check)).join('')}</ul>` : '';
-  const ago = Math.max(0, Math.round((Date.now() - p.updated) / 60000));
-  const dlg = $('#sheet');
-  dlg.classList.remove('full');
-  dlg.innerHTML = `<div class="sheet">
-    <h2>👀 ${esc(p.name || 'Shared')}'s tasks</h2>
-    <p class="meta">View only · updated ${ago < 1 ? 'just now' : ago < 60 ? `${ago} min ago` : fmtDate(dateKey(new Date(p.updated))).toLowerCase()}</p>
-    ${sec('Today', now, true) || '<p class="empty">Nothing for today.</p>'}
-    ${sec('Upcoming', upcoming, true)}
-    ${sec('Routines', routines, false)}
-    <div class="btns end" style="margin-top:16px"><button type="button" class="btn primary" data-action="close-sheet">Close</button></div>
-  </div>`;
-  if (!dlg.open) dlg.showModal();
-}
-
 const taskSection = (title, list, emptyMsg, opts) => `
   <h2 class="sec">${title}</h2>
   <div class="card"><ul class="list">
@@ -753,13 +719,7 @@ views.tasks = () => {
   const done = state.tasks.filter(t => !isRepeat(t) && t.done && t.doneAt !== k)
     .sort((a, b) => (b.doneAt || '').localeCompare(a.doneAt || '')).slice(0, 15);
 
-  // tasks someone shared with you from the shopping app (view only)
-  const shared = PUSH_SERVER ? Shop.sharedTasks().filter(p => p.tasks.length) : [];
   return `
-  ${shared.map(p => {
-    const open = p.tasks.filter(t => isRepeat(t) ? dueOn(t, k) && !(t.doneDates || {})[k] : !t.done && (!t.due || t.due <= k)).length;
-    return `<button class="btn block partner-btn" data-action="partner-tasks" data-dev="${esc(p.dev)}">👀 ${esc(p.name || 'Shared')}'s tasks${open ? ` · ${open} today` : ''} <span class="chev">›</span></button>`;
-  }).join('')}
   <form class="card add" data-form="task">
     <input name="title" placeholder="What do you need to do?" required autocomplete="off" aria-label="New task">
     <div class="add-row">
@@ -1003,9 +963,6 @@ function render() {
   }
 }
 
-// opening Tasks fetches any task lists shared with you
-const refreshShared = () => { if (PUSH_SERVER) Shop.refresh().then(() => { if (ui.tab === 'tasks') render(); }); };
-
 // Little counts on the bottom tabs
 function tabBadges() {
   const k = today();
@@ -1018,7 +975,6 @@ function tabBadges() {
 }
 
 function go(tab) {
-  if (tab === 'tasks' && ui.tab !== 'tasks') setTimeout(refreshShared, 0);
   if (ui.tab === 'money' && tab !== 'money') Privacy.markAway();
   if (tab === 'money') Privacy.markBack();
   ui.tab = tab;
@@ -1353,7 +1309,6 @@ document.addEventListener('click', e => {
     }
     case 'del-task': if ($('#sheet').open) $('#sheet').close(); removeWithUndo('tasks', id, 'Task'); break;
     case 'edit-task': openTaskEdit(id); break;
-    case 'partner-tasks': openPartnerTasks(b.dataset.dev); break;
     case 'toggle-remind': {
       const t = state.tasks.find(x => x.id === id);
       if (!t) break;
@@ -1654,7 +1609,6 @@ $('#sheet').addEventListener('close', () => { if (!$('#sheet').open) $('#sheet')
 // ---------- boot ----------
 startShop();
 render();
-if (ui.tab === 'tasks') refreshShared();
 if (state.settings.notify && PUSH_SERVER) navigator.serviceWorker?.ready.then(() => syncReminders(true));
 if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {

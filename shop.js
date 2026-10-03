@@ -758,10 +758,8 @@ const Shop = (() => {
     get doc() { return doc; },
     get mode() { return ui.mode; },
     choresForMe, people,
-    // her app publishes her task list; the main app reads it (view only)
-    publishTasks: tasks => op({ op: 'publishTasks', tasks }),
+    // removes a task list an earlier version shared
     unpublishTasks: () => op({ op: 'unpublishTasks' }),
-    sharedTasks: () => Object.entries(doc.sharedTasks || {}).filter(([dev]) => dev !== cfg.device).map(([dev, v]) => ({ dev, ...v })),
     showChores() { ui.view = 'chores'; ui.mode = 'list'; saveUI(); },
     showView(v) { ui.view = v; ui.mode = 'list'; saveUI(); },
     _test: { parseItems, guess, stepQty },

@@ -131,30 +131,12 @@
 
     // her own private tasks (stored on this phone); reminders sync when they change
     let syncTimer;
-    // Her tasks can be shown (view only) in her partner's app. It's on by default and always visible to her.
-    const sharing = () => get('mt-share') !== '0';
-    const partner = () => Shop.people().filter(n => n !== get('shop-name'))[0] || 'your partner';
-    let pubTimer;
-    const publish = () => { clearTimeout(pubTimer); pubTimer = setTimeout(() => { if (sharing() && PUSH_SERVER) Shop.publishTasks(MyTasks.all()); }, 1500); };
     MyTasks.init({
       onChange: render, onMessage: toast,
       onSave: () => {
-        publish();
         if (get('shop-notify') !== '1') return;
         clearTimeout(syncTimer); syncTimer = setTimeout(() => syncPush().catch(() => {}), 1200);
       },
-      shareNote: () => sharing()
-        ? `<div class="card share-note">👀 <b>${partner()}</b> can see these tasks (view only). Your other data stays private.
-            <button type="button" class="link" data-mt-share="off">Stop sharing</button></div>`
-        : `<div class="card share-note">🔒 Only you can see these tasks.
-            <button type="button" class="link" data-mt-share="on">Share with ${partner()}</button></div>`,
-    });
-    document.addEventListener('click', e => {
-      const b = e.target.closest && e.target.closest('[data-mt-share]');
-      if (!b) return;
-      if (b.dataset.mtShare === 'off') { set('mt-share', '0'); Shop.unpublishTasks(); toast('Your tasks are private now'); }
-      else { set('mt-share', '1'); Shop.publishTasks(MyTasks.all()); toast(`👀 ${partner()} can see your tasks`); }
-      render();
     });
     if (new URLSearchParams(location.search).get('view') === 'tasks') Shop.showView('tasks');   // opened from a task reminder
 
@@ -165,7 +147,8 @@
         extraTab: { key: 'tasks', label: '✅ My tasks', count: MyTasks.count, html: MyTasks.html } });
       render();
       Shop.start();
-      if (sharing() && PUSH_SERVER) setTimeout(() => Shop.publishTasks(MyTasks.all()), 3000);   // keep the shared copy current
+      // My tasks are private: remove the copy an earlier version shared (once)
+      if (PUSH_SERVER && get('mt-private') !== '1') setTimeout(() => Shop.unpublishTasks().then(ok => { if (ok) set('mt-private', '1'); }), 3000);
     }
 
     document.addEventListener('submit', e => {

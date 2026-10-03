@@ -580,9 +580,6 @@ ul.plain li:last-child { border-bottom: 0; }
 .subtabs.three-tabs button { font-size: 13px; padding: 9px 2px; }
 
 /* shared (view-only) task lists */
-.partner-btn { justify-content: space-between; margin-bottom: 12px; font-weight: 600; background: var(--accent-soft); border-color: var(--accent); }
-.share-note { font-size: 14px; background: var(--accent-soft); border-color: var(--accent); }
-.share-note .link { display: block; padding: 6px 0 0; }
 
 /* ---------- task row action icons ---------- */
 .acts { display: flex; gap: 6px; flex: none; align-items: center; }
