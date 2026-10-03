@@ -1034,6 +1034,8 @@ function openSettings() {
   <form method="dialog" class="sheet">
     <h2>Settings</h2>
     <p class="meta">${counts}</p>
+    <span class="lbl">Theme</span>
+    ${themePickerHtml()}
     <label class="lbl">Currency
       <select id="currency">${CURRENCIES.map(c => `<option ${c === state.settings.currency ? 'selected' : ''}>${c}</option>`).join('')}</select>
     </label>

@@ -13,6 +13,7 @@
   <meta name="referrer" content="no-referrer">
   <link rel="icon" href="shop-icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="shop-icon.png">
+  <script>try { const t = localStorage.getItem('theme'); if (t && t !== 'auto') document.documentElement.dataset.theme = t; } catch (e) {}</script>
   <link rel="stylesheet" href="styles.css">
   <style>body { padding-bottom: calc(24px + env(safe-area-inset-bottom)); }</style>
   <title>Shopping List</title>
@@ -21,6 +22,7 @@
   <header class="topbar">
     <h1>🛒 Shopping</h1>
     <span>
+      <button class="icon-btn" id="themeBtn" aria-label="Change colour theme">🎨</button>
       <button class="icon-btn" id="bell" aria-label="Notifications" hidden>🔕</button>
       <button class="icon-btn" id="who" aria-label="Change your name">👤</button>
     </span>
@@ -28,6 +30,7 @@
   <main id="view"></main>
   <div id="toast" role="status" aria-live="polite"></div>
 
+  <script src="theme.js"></script>
   <script src="config.js"></script>
   <script src="shop.js"></script>
   <script>
@@ -116,6 +119,13 @@
       } catch { toast('Could not turn on notifications — try again'); }
     }
     bell.addEventListener('click', toggleNotify);
+
+    // 🎨 cycles through the colour themes
+    document.getElementById('themeBtn').addEventListener('click', () => {
+      const keys = Object.keys(THEMES), next = keys[(keys.indexOf(currentTheme()) + 1) % keys.length];
+      applyTheme(next);
+      toast(`🎨 ${THEMES[next].name} theme · ${THEMES[next].hint}`);
+    });
 
     function start() {
       render();
