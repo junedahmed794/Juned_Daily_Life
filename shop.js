@@ -35,7 +35,7 @@ const Shop = (() => {
 
   const cfg = { code: '', name: '', device: '', currency: '', owner: false, onChange: () => {}, onMessage: () => {}, onLogMoney: null };
   let doc = blankDoc(), status = 'loading', pollTimer = null, busy = 0, wakeLock = null, refocus = false, dlg = null, draftOrder = [];
-  let ui = { mode: 'list', store: '', view: 'shop' };
+  let ui = { mode: 'list', store: '', view: 'shop', buySort: 'az' };
 
   // ---------- helpers ----------
   function guess(name) {
@@ -96,7 +96,7 @@ const Shop = (() => {
   function init(options) {
     Object.assign(cfg, options);
     try { doc = normalize(JSON.parse(lsGet(cacheKey()) || 'null')); } catch { doc = blankDoc(); }
-    try { ui = { mode: 'list', store: '', view: 'shop', ...JSON.parse(lsGet(uiKey()) || '{}') }; } catch { ui = { mode: 'list', store: '', view: 'shop' }; }
+    try { ui = { mode: 'list', store: '', view: 'shop', buySort: 'az', ...JSON.parse(lsGet(uiKey()) || '{}') }; } catch { ui = { mode: 'list', store: '', view: 'shop', buySort: 'az' }; }
     status = doc.items.length ? 'cached' : 'loading';
     if (ui.mode === 'shopping') keepAwake(true);
   }
@@ -284,28 +284,45 @@ const Shop = (() => {
   }
 
   // Tick several past items and add them in one go
-  function openBuyAgain() {
+  const BUY_SORTS = { az: 'A–Z', section: 'Sections', most: 'Most bought' };
+  function openBuyAgain(keep = { picked: [], search: '' }) {
     const list = buyAgainList();
     if (!list.length) { cfg.onMessage('Nothing to buy again yet'); return; }
-    const sectionOfKey = h => (SECTIONS[h.cat] ? h.cat : guess(h.name) || 'Other');
-    const groups = doc.order.map(sec => [sec, list.filter(([, h]) => sectionOfKey(h) === sec)
-      .sort((x, y) => y[1].n - x[1].n || x[1].name.localeCompare(y[1].name))]).filter(([, l]) => l.length);
+    const sort = BUY_SORTS[ui.buySort] ? ui.buySort : 'az';
+    const byName = (x, y) => x[1].name.localeCompare(y[1].name, undefined, { sensitivity: 'base' });
+    let groups;
+    if (sort === 'section') {
+      const sectionOfKey = h => (SECTIONS[h.cat] ? h.cat : guess(h.name) || 'Other');
+      groups = doc.order.map(sec => [`${SECTIONS[sec][0]} ${SECTIONS[sec][1]}`, list.filter(([, h]) => sectionOfKey(h) === sec).sort(byName)]);
+    } else if (sort === 'most') {
+      groups = [['', list.slice().sort((x, y) => y[1].n - x[1].n || byName(x, y))]];
+    } else {
+      const letters = {};
+      list.slice().sort(byName).forEach(e => { const L = (/[a-z]/i.test(e[1].name[0]) ? e[1].name[0] : '#').toUpperCase(); (letters[L] = letters[L] || []).push(e); });
+      groups = Object.entries(letters);
+    }
+    groups = groups.filter(([, l]) => l.length);
+    const picked = new Set(keep.picked);
     sheet(`<form class="sheet buy-sheet" data-buy-form>
       <h2>🔁 Buy again</h2>
-      <input type="search" data-buy-search placeholder="Search ${list.length} items…" autocomplete="off" aria-label="Search">
+      <div class="subtabs buy-sort" role="radiogroup" aria-label="Sort">${Object.entries(BUY_SORTS).map(([k, l]) =>
+        `<button type="button" role="radio" aria-checked="${k === sort}" class="${k === sort ? 'on' : ''}" data-shop="buy-sort" data-v="${k}">${l}</button>`).join('')}</div>
+      <input type="search" data-buy-search placeholder="Search ${list.length} items…" autocomplete="off" aria-label="Search" value="${esc(keep.search)}">
       <div class="buy-tools"><button type="button" class="link" data-shop="buy-all">Select all</button>
         <button type="button" class="link" data-shop="buy-none">Clear</button></div>
-      <div class="buy-list">${groups.map(([sec, l]) => `<div class="buy-group">
-        <h3 class="sec">${SECTIONS[sec][0]} ${SECTIONS[sec][1]}</h3>
+      <div class="buy-list">${groups.map(([title, l]) => `<div class="buy-group">
+        ${title ? `<h3 class="sec">${title}</h3>` : ''}
         ${l.map(([k, h]) => `<label class="buy-row" data-name="${esc(k)}">
-          <input type="checkbox" name="pick" value="${esc(k)}">
-          <span class="grow"><span class="row-title">${esc(h.name)}</span>
+          <input type="checkbox" name="pick" value="${esc(k)}" ${picked.has(k) ? 'checked' : ''}>
+          <span class="grow"><span class="row-title">${sort !== 'section' ? `${(SECTIONS[h.cat] || SECTIONS.Other)[0]} ` : ''}${esc(h.name)}</span>
             <small class="meta">${[h.n > 1 ? `added ${h.n}×` : '', h.store ? `🏬 ${esc(h.store)}` : ''].filter(Boolean).join(' · ')}</small></span>
           <button type="button" class="icon-btn" data-shop="forget" data-key="${esc(k)}" aria-label="Remove ${esc(h.name)} from Buy again">✕</button>
         </label>`).join('')}</div>`).join('')}</div>
       <div class="btns end buy-foot"><button type="button" class="btn" data-shop="close">Cancel</button>
         <button class="btn primary" data-buy-submit disabled>Add selected</button></div>
     </form>`);
+    if (keep.search) dlg.querySelector('[data-buy-search]').dispatchEvent(new Event('input', { bubbles: true }));
+    updateBuyCount();
   }
 
   function updateBuyCount() {
@@ -518,6 +535,14 @@ const Shop = (() => {
         break;
       }
       case 'buy-open': openBuyAgain(); break;
+      case 'buy-sort': {
+        // keep ticks and search while switching the order
+        const f = dlg.querySelector('[data-buy-form]');
+        const keep = { picked: [...f.querySelectorAll('[name=pick]:checked')].map(c => c.value), search: f.querySelector('[data-buy-search]').value };
+        ui.buySort = b.dataset.v; saveUI();
+        openBuyAgain(keep);
+        break;
+      }
       case 'buy-all': case 'buy-none':
         dlg.querySelectorAll('.buy-row:not([hidden]) [name=pick]').forEach(c => { c.checked = shop === 'buy-all'; });
         updateBuyCount();
