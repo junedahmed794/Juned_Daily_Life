@@ -54,7 +54,7 @@ function guessCurrency() {
 const defaults = () => ({
   tasks: [], habits: [], expenses: [], journal: {},
   office: { shifts: [], daysOff: [], tasks: [], meetings: [] },
-  settings: { currency: guessCurrency(), workHours: 8, name: 'Juned' },
+  settings: { currency: guessCurrency(), workHours: 8, name: '' },
 });
 
 // Fill in anything missing from older saves or backups
@@ -362,7 +362,7 @@ function officeMeetings() {
         <label class="lbl">Time<input type="time" name="time"></label>
       </div>
       <label class="lbl">Notes<textarea name="notes" rows="4" placeholder="What was discussed? Decisions made?"></textarea></label>
-      <label class="lbl">Action items <span class="meta">(one per line)</span><textarea name="actions" rows="3" placeholder="Send report to Sara&#10;Book follow-up for Friday"></textarea></label>
+      <label class="lbl">Action items <span class="meta">(one per line)</span><textarea name="actions" rows="3" placeholder="Send the report&#10;Book a follow-up for Friday"></textarea></label>
       <button class="btn primary block" style="margin-top:12px">Save meeting</button>
     </form>
   </details>
@@ -1032,7 +1032,7 @@ function openSettings() {
       <select id="currency">${CURRENCIES.map(c => `<option ${c === state.settings.currency ? 'selected' : ''}>${c}</option>`).join('')}</select>
     </label>
     <label class="lbl">Your name — shown on the shared shopping list
-      <input id="myName" maxlength="30" autocomplete="given-name" value="${esc(state.settings.name || '')}">
+      <input id="myName" maxlength="30" autocomplete="given-name" placeholder="Your name" value="${esc(state.settings.name || '')}">
     </label>
     <label class="lbl">Work day length (hours) — used for overtime
       <input type="number" id="workHours" min="1" max="24" step="0.5" inputmode="decimal" value="${state.settings.workHours}">
@@ -1040,8 +1040,8 @@ function openSettings() {
     <h3>Reminders</h3>
     ${notifySettings()}
     ${PUSH_SERVER ? `<h3>🛒 Shared shopping list</h3>
-    <p class="meta">Send your wife this link. It opens a shopping-only app — she can't see anything else in Juned Daily.
-      ${state.settings.notify ? 'You’ll get a 🔔 when she adds something.' : 'Turn on notifications above to get a 🔔 when she adds something.'}
+    <p class="meta">Send this link to anyone you shop with. It opens a shopping-only app — they can't see anything else in Juned Daily.
+      ${state.settings.notify ? 'You’ll get a 🔔 when they add something.' : 'Turn on notifications above to get a 🔔 when they add something.'}
       “New link” stops the old link from working.</p>
     <div class="btns"><button type="button" class="btn" data-action="shop-share">📤 Share link</button>
       <button type="button" class="btn" data-action="shop-reset">New link</button></div>` : ''}

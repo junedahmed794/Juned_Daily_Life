@@ -18,7 +18,7 @@ const MAX_DEVICES = 10, MAX_REMINDERS = 300;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const LIST_CODE = /^[A-Za-z0-9_-]{20,64}$/;
 const SECTIONS = ['Produce', 'Dairy', 'Meat', 'Bakery', 'Frozen', 'Pantry', 'Snacks', 'Drinks', 'Household', 'Pharmacy', 'Other'];
-const DEFAULT_STORES = ['Walmart', "Sam's Club", 'Indian store'];
+const DEFAULT_STORES = [];
 const MAX_ITEMS = 300, MAX_HISTORY = 300, MAX_STAPLES = 50;
 
 const te = new TextEncoder();

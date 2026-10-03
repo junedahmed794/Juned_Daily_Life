@@ -351,7 +351,7 @@ const Shop = (() => {
         <label class="lbl">Section<select name="cat">${options(Object.entries(SECTIONS).map(([k, [e, l]]) => [k, `${e} ${l}`]), sectionOf(i))}</select></label>
         <label class="lbl">Store<select name="store">${options([['', 'Any store'], ...doc.stores.map(s => [s, s])], i.store)}</select></label>
       </div>
-      <label class="lbl">Note<input name="note" value="${esc(i.note)}" maxlength="120" placeholder="e.g. Kirkland brand, 2% not whole"></label>
+      <label class="lbl">Note<input name="note" value="${esc(i.note)}" maxlength="120" placeholder="e.g. organic, 2% not whole"></label>
       <label class="lbl">🔁 Weekly staple — comes back on the list by itself
         <select name="every">${options([['0', 'No'], ['7', 'Every week'], ['14', 'Every 2 weeks'], ['30', 'Every month']], String(st ? st.every : 0))}</select></label>
       <div class="btns spread" style="margin-top:18px">
@@ -379,7 +379,7 @@ const Shop = (() => {
     sheet(`<form class="sheet" data-shop-settings>
       <h2>Stores & aisle order</h2>
       <label class="lbl">Your stores <span class="meta">(one per line)</span>
-        <textarea name="stores" rows="4" placeholder="Walmart&#10;Sam's Club">${esc(doc.stores.join('\n'))}</textarea></label>
+        <textarea name="stores" rows="4" placeholder="Supermarket&#10;Pharmacy">${esc(doc.stores.join('\n'))}</textarea></label>
       <span class="lbl">Aisle order — the way you walk through the store</span>
       <ul class="list order">${draftOrder.map((s, n) => `<li class="row"><span class="grow">${SECTIONS[s][0]} ${SECTIONS[s][1]}</span>
         <button type="button" class="icon-btn" data-shop="up" data-idx="${n}" aria-label="Move ${SECTIONS[s][1]} up" ${n ? '' : 'disabled'}>↑</button>
