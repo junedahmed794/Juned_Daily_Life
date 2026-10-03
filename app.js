@@ -55,7 +55,7 @@ const defaults = () => ({
   tasks: [], habits: [], expenses: [], journal: {},
   office: { shifts: [], daysOff: [], tasks: [], meetings: [] },
   settings: {
-    currency: guessCurrency(), workHours: 8, name: '',
+    currency: guessCurrency(), workHours: 8, name: '', hiddenTabs: ['journal'],
     nudges: { morning: { on: true, time: '08:00' }, habits: { on: true, time: '19:00' }, evening: { on: true, time: '21:00' } },
   },
 });
@@ -647,7 +647,7 @@ views.today = () => {
   </section>
 
   <section class="card">
-    <div class="card-head"><h2>How are you feeling?</h2><button class="link" data-action="open-journal" data-day="${k}">Journal →</button></div>
+    <div class="card-head"><h2>How are you feeling?</h2>${tabShown('journal') ? `<button class="link" data-action="open-journal" data-day="${k}">Journal →</button>` : ''}</div>
     <div class="moods">${MOODS.map((m, i) => `<button class="mood ${j.mood === i + 1 ? 'on' : ''}" data-action="mood"
       data-day="${k}" data-v="${i + 1}" aria-label="Mood ${i + 1} of 5">${m}</button>`).join('')}</div>
   </section>
@@ -873,11 +873,18 @@ views.shop = () => Shop.html();
 
 views.insights = () => insightsView();
 
+// Tabs that can be hidden from the bottom bar (Today always stays)
+const OPTIONAL_TABS = ['tasks', 'habits', 'money', 'office', 'shop', 'journal'];
+const tabShown = t => !(state.settings.hiddenTabs || []).includes(t);
+
 // ---------- render ----------
 function render() {
   ui.day = today();
   $('#title').textContent = TABS[ui.tab];
   document.title = `${TABS[ui.tab]} · Juned Daily`;
+  if (OPTIONAL_TABS.includes(ui.tab) && !tabShown(ui.tab)) ui.tab = 'today';
+  const visibleTabs = [...document.querySelectorAll('.tabs button')].filter(b => { const show = tabShown(b.dataset.tab); b.hidden = !show; return show; });
+  $('.tabs').style.gridTemplateColumns = `repeat(${visibleTabs.length}, 1fr)`;
   document.querySelectorAll('.tabs button').forEach(b => {
     const on = b.dataset.tab === ui.tab;
     b.classList.toggle('active', on);
@@ -992,7 +999,7 @@ function nudgeList() {
   }
   if (n.evening.on) {
     out.push({ id: 'nudge-evening', kind: 'nudge', title: '🌙 How was your day?', time: n.evening.time, repeat: 'daily', start: k,
-      body: 'Tap to log your mood and a few words.', bodyDate: '', fallback: 'Tap to log your mood and a few words.', url: './?tab=journal',
+      body: tabShown('journal') ? 'Tap to log your mood and a few words.' : 'Tap to log your mood for today.', bodyDate: '', fallback: 'Tap to log your mood and a few words.', url: tabShown('journal') ? './?tab=journal' : './?tab=today',
       skip: [k].filter(x => state.journal[x] && state.journal[x].mood) });
   }
   return out;
@@ -1102,6 +1109,8 @@ function openSettings() {
   <form method="dialog" class="sheet">
     <h2>Settings</h2>
     <p class="meta">${counts}</p>
+    <span class="lbl">Tabs in the bottom bar</span>
+    <div class="chips tab-picker">${OPTIONAL_TABS.map(t => `<button type="button" class="chip ${tabShown(t) ? 'on' : ''}" data-action="toggle-tab" data-tab="${t}" aria-pressed="${tabShown(t)}">${tabShown(t) ? '✓ ' : ''}${TABS[t]}</button>`).join('')}</div>
     <span class="lbl">Theme</span>
     ${themePickerHtml()}
     <label class="lbl">Currency
@@ -1183,6 +1192,14 @@ document.addEventListener('click', e => {
       break;
     }
     case 'quick': openQuick(); break;
+    case 'toggle-tab': {
+      const t = b.dataset.tab, hidden = new Set(state.settings.hiddenTabs || []);
+      if (hidden.has(t)) hidden.delete(t); else hidden.add(t);
+      state.settings.hiddenTabs = [...hidden];
+      save(); render(); refreshSettings();
+      toast(hidden.has(t) ? `${TABS[t]} tab hidden — turn it back on here any time` : `${TABS[t]} tab shown`);
+      break;
+    }
     case 'close-sheet': $('#sheet').close(); break;
     case 'irange': insightRange = Number(b.dataset.v); render(); break;
     case 'shop-share': shareShopLink(); break;

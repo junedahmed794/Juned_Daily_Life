@@ -462,3 +462,5 @@ main { padding-bottom: 84px; }
 .nudge-row .toggle span { display: flex; flex-direction: column; line-height: 1.25; }
 .nudge-row .toggle small { color: var(--muted); font-weight: 400; font-size: 12px; }
 .nudge-row select { width: 112px; flex: none; }
+.tab-picker .chip.on { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+.tabs button[hidden] { display: none; }
