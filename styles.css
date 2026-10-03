@@ -577,3 +577,11 @@ ul.plain li:last-child { border-bottom: 0; }
 [data-refresh].spinning svg { animation: spin .7s linear infinite; }
 .edit-btn { font-size: 16px; opacity: .7; }
 .edit-btn:hover, .edit-btn:active { opacity: 1; }
+
+.subtabs.three-tabs { grid-template-columns: repeat(3, 1fr); }
+.subtabs.three-tabs button { font-size: 13px; padding: 9px 2px; }
+
+/* shared (view-only) task lists */
+.partner-btn { justify-content: space-between; margin-bottom: 12px; font-weight: 600; background: var(--accent-soft); border-color: var(--accent); }
+.share-note { font-size: 14px; background: var(--accent-soft); border-color: var(--accent); }
+.share-note .link { display: block; padding: 6px 0 0; }

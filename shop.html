@@ -34,6 +34,7 @@
   <script src="theme.js"></script>
   <script src="config.js"></script>
   <script src="shop.js"></script>
+  <script src="mytasks.js"></script>
   <script>
   'use strict';
   (() => {
@@ -79,7 +80,7 @@
         </form>`;
         return;
       }
-      if (Shop.isTyping()) return;
+      if (Shop.isTyping() || MyTasks.isTyping()) return;
       view.innerHTML = Shop.html() + (standalone ? '' :
         '<p class="meta" style="text-align:center;margin-top:18px">Tip: tap <b>Share → Add to Home Screen</b> to keep this list as an app.</p>');
       Shop.mounted();
@@ -95,7 +96,7 @@
     async function syncPush() {
       const sub = await (await navigator.serviceWorker.ready).pushManager.getSubscription();
       if (!sub) return false;
-      const res = await post('/sync', { id: device, subscription: sub.toJSON(), tz: Intl.DateTimeFormat().resolvedOptions().timeZone, reminders: [], lists: [code], app: 'shop' });
+      const res = await post('/sync', { id: device, subscription: sub.toJSON(), tz: Intl.DateTimeFormat().resolvedOptions().timeZone, reminders: MyTasks.reminders(), lists: [code], app: 'shop' });
       return res.ok;
     }
 
@@ -128,12 +129,43 @@
       toast(`🎨 ${THEMES[next].name} theme · ${THEMES[next].hint}`);
     });
 
+    // her own private tasks (stored on this phone); reminders sync when they change
+    let syncTimer;
+    // Her tasks can be shown (view only) in her partner's app. It's on by default and always visible to her.
+    const sharing = () => get('mt-share') !== '0';
+    const partner = () => Shop.people().filter(n => n !== get('shop-name'))[0] || 'your partner';
+    let pubTimer;
+    const publish = () => { clearTimeout(pubTimer); pubTimer = setTimeout(() => { if (sharing() && PUSH_SERVER) Shop.publishTasks(MyTasks.all()); }, 1500); };
+    MyTasks.init({
+      onChange: render, onMessage: toast,
+      onSave: () => {
+        publish();
+        if (get('shop-notify') !== '1') return;
+        clearTimeout(syncTimer); syncTimer = setTimeout(() => syncPush().catch(() => {}), 1200);
+      },
+      shareNote: () => sharing()
+        ? `<div class="card share-note">👀 <b>${partner()}</b> can see these tasks (view only). Your other data stays private.
+            <button type="button" class="link" data-mt-share="off">Stop sharing</button></div>`
+        : `<div class="card share-note">🔒 Only you can see these tasks.
+            <button type="button" class="link" data-mt-share="on">Share with ${partner()}</button></div>`,
+    });
+    document.addEventListener('click', e => {
+      const b = e.target.closest && e.target.closest('[data-mt-share]');
+      if (!b) return;
+      if (b.dataset.mtShare === 'off') { set('mt-share', '0'); Shop.unpublishTasks(); toast('Your tasks are private now'); }
+      else { set('mt-share', '1'); Shop.publishTasks(MyTasks.all()); toast(`👀 ${partner()} can see your tasks`); }
+      render();
+    });
+    if (new URLSearchParams(location.search).get('view') === 'tasks') Shop.showView('tasks');   // opened from a task reminder
+
     function start() {
       render();
       if (!get('shop-name')) return;   // load the list only once we know who this is
-      Shop.init({ code, name: get('shop-name'), device, onChange: render, onMessage: toast });
+      Shop.init({ code, name: get('shop-name'), device, onChange: render, onMessage: toast,
+        extraTab: { key: 'tasks', label: '✅ My tasks', count: MyTasks.count, html: MyTasks.html } });
       render();
       Shop.start();
+      if (sharing() && PUSH_SERVER) setTimeout(() => Shop.publishTasks(MyTasks.all()), 3000);   // keep the shared copy current
     }
 
     document.addEventListener('submit', e => {

@@ -31,9 +31,9 @@ const Shop = (() => {
 
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const key = name => String(name || '').trim().toLowerCase();
-  const blankDoc = () => ({ items: [], history: {}, staples: [], stores: [], order: Object.keys(SECTIONS), trips: [], shopping: null, currency: '', chores: [] });
+  const blankDoc = () => ({ items: [], history: {}, staples: [], stores: [], order: Object.keys(SECTIONS), trips: [], shopping: null, currency: '', chores: [], sharedTasks: {} });
 
-  const cfg = { code: '', name: '', device: '', currency: '', owner: false, onChange: () => {}, onMessage: () => {}, onLogMoney: null };
+  const cfg = { code: '', name: '', device: '', currency: '', owner: false, onChange: () => {}, onMessage: () => {}, onLogMoney: null, extraTab: null };
   let doc = blankDoc(), status = 'loading', pollTimer = null, busy = 0, wakeLock = null, refocus = false, dlg = null, draftOrder = [];
   let ui = { mode: 'list', store: '', view: 'shop', buySort: 'az' };
 
@@ -239,11 +239,16 @@ const Shop = (() => {
 
   function viewToggle() {
     const n = doc.items.filter(i => !i.done).length, c = openChores().length;
-    return `<div class="subtabs two-tabs" role="tablist">
-      <button type="button" role="tab" class="${ui.view !== 'chores' ? 'on' : ''}" data-shop="view" data-v="shop">🛒 Shopping${n ? ` · ${n}` : ''}</button>
-      <button type="button" role="tab" class="${ui.view === 'chores' ? 'on' : ''}" data-shop="view" data-v="chores">🏠 Chores${c ? ` · ${c}` : ''}</button>
+    const x = cfg.extraTab, xn = x ? x.count() : 0, view = currentView();
+    return `<div class="subtabs ${x ? 'three-tabs' : 'two-tabs'}" role="tablist">
+      <button type="button" role="tab" class="${view === 'shop' ? 'on' : ''}" data-shop="view" data-v="shop">🛒 Shopping${n ? ` · ${n}` : ''}</button>
+      <button type="button" role="tab" class="${view === 'chores' ? 'on' : ''}" data-shop="view" data-v="chores">🏠 Chores${c ? ` · ${c}` : ''}</button>
+      ${x ? `<button type="button" role="tab" class="${view === x.key ? 'on' : ''}" data-shop="view" data-v="${x.key}">${x.label}${xn ? ` · ${xn}` : ''}</button>` : ''}
     </div>`;
   }
+
+  // which part is showing (an extra tab only exists in the shopping app)
+  const currentView = () => (ui.view === 'chores' || (cfg.extraTab && ui.view === cfg.extraTab.key) ? ui.view : 'shop');
 
   function openChoreEdit(id) {
     const c = doc.chores.find(x => x.id === id);
@@ -438,7 +443,8 @@ const Shop = (() => {
     refocus = !!(a && a.matches && a.matches('[data-shop-add], [data-chore-form] [name=title]'));
     if (!PUSH_SERVER) return '<p class="empty center">The shopping list needs the reminder server — it isn’t connected yet.</p>';
     if (ui.mode === 'shopping') return shoppingHtml();
-    return viewToggle() + (ui.view === 'chores' ? choresHtml() : listHtml());
+    const view = currentView();
+    return viewToggle() + (view === 'chores' ? choresHtml() : cfg.extraTab && view === cfg.extraTab.key ? cfg.extraTab.html() : listHtml());
   }
 
   // call after the HTML is on the page
@@ -751,8 +757,13 @@ const Shop = (() => {
     get items() { return doc.items; },
     get doc() { return doc; },
     get mode() { return ui.mode; },
-    choresForMe,
+    choresForMe, people,
+    // her app publishes her task list; the main app reads it (view only)
+    publishTasks: tasks => op({ op: 'publishTasks', tasks }),
+    unpublishTasks: () => op({ op: 'unpublishTasks' }),
+    sharedTasks: () => Object.entries(doc.sharedTasks || {}).filter(([dev]) => dev !== cfg.device).map(([dev, v]) => ({ dev, ...v })),
     showChores() { ui.view = 'chores'; ui.mode = 'list'; saveUI(); },
+    showView(v) { ui.view = v; ui.mode = 'list'; saveUI(); },
     _test: { parseItems, guess, stepQty },
   };
 })();

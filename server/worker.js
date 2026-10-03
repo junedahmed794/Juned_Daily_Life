@@ -155,7 +155,7 @@ function cleanReminder(r) {
     body: String(r.body || '').slice(0, 200),
     bodyDate: DATE.test(r.bodyDate) ? r.bodyDate : '',
     fallback: String(r.fallback || '').slice(0, 200),
-    url: /^\.\/(\?tab=[a-z]+)?$/.test(r.url || '') ? r.url : './',
+    url: /^(\.\/(\?tab=[a-z]+)?|shop\.html(\?view=[a-z]+)?)$/.test(r.url || '') ? r.url : './',
   };
 }
 
@@ -164,7 +164,7 @@ function reminderMessage(r, now) {
     const body = r.bodyDate && r.bodyDate !== now.date ? r.fallback : (r.body || r.fallback);
     return { title: r.title, body, tag: r.id, url: r.url };
   }
-  return { title: `\u{23f0} ${r.title}`, body: 'Reminder from Juned Daily', tag: r.id, url: './' };
+  return { title: `\u{23f0} ${r.title}`, body: /^shop/.test(r.url) ? 'Task reminder' : 'Reminder from Juned Daily', tag: r.id, url: r.url || './' };
 }
 
 // ---------- shared shopping list ----------
@@ -186,6 +186,7 @@ function normalizeList(list) {
   SECTIONS.forEach(s => { if (!list.order.includes(s)) list.order.push(s); });
   list.trips = Array.isArray(list.trips) ? list.trips : [];
   list.chores = Array.isArray(list.chores) ? list.chores : [];
+  list.sharedTasks = list.sharedTasks && typeof list.sharedTasks === 'object' ? list.sharedTasks : {};
   list.shopping = list.shopping || null;
   list.currency = /^[A-Z]{3}$/.test(list.currency || '') ? list.currency : 'USD';
   return list;
@@ -240,6 +241,25 @@ function cleanChore(x, by) {
   return {
     id: rid(), title, who: cleanText(x.who, 30), due: DATE.test(x.due || '') ? x.due : '',
     done: false, by: cleanText(by, 30), doneBy: '', at: Date.now(),
+  };
+}
+
+// A task someone chose to share (view-only for the others on the list)
+const TASK_REPEATS = ['none', 'daily', 'weekdays', 'weekly', 'monthly'];
+function cleanSharedTask(t) {
+  const title = cleanText(t && t.title, 120);
+  if (!title) return null;
+  const dates = t.doneDates && typeof t.doneDates === 'object' ? Object.keys(t.doneDates).filter(d => DATE.test(d)).sort().slice(-14) : [];
+  return {
+    id: cleanText(t.id, 20), title,
+    due: DATE.test(t.due || '') ? t.due : null,
+    time: /^([01]\d|2[0-3]):[0-5]\d$/.test(t.time || '') ? t.time : '',
+    repeat: TASK_REPEATS.includes(t.repeat) ? t.repeat : 'none',
+    weekday: Math.min(6, Math.max(0, Number(t.weekday) || 0)),
+    monthDay: Math.min(31, Math.max(1, Number(t.monthDay) || 1)),
+    done: !!t.done, doneAt: DATE.test(t.doneAt || '') ? t.doneAt : null,
+    doneDates: Object.fromEntries(dates.map(d => [d, true])),
+    created: Number(t.created) || 0,
   };
 }
 
@@ -362,6 +382,14 @@ function applyListOp(list, b) {
       return {};
     }
     case 'choreRemove': list.chores = list.chores.filter(x => x.id !== b.id); return {};
+    case 'publishTasks': {
+      const dev = cleanText(b.device, 40);
+      if (!dev) return null;
+      const tasks = (Array.isArray(b.tasks) ? b.tasks : []).slice(0, 300).map(cleanSharedTask).filter(Boolean);
+      list.sharedTasks[dev] = { name: by, tasks, updated: Date.now() };
+      return {};
+    }
+    case 'unpublishTasks': delete list.sharedTasks[cleanText(b.device, 40)]; return {};
     case 'choreClear': list.chores = list.chores.filter(x => !x.done); return {};
     case 'choreRestore':
       for (const x of (Array.isArray(b.chores) ? b.chores : []).slice(0, MAX_CHORES)) {
