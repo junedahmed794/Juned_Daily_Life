@@ -674,7 +674,7 @@ views.today = () => {
 
   <section class="card">
     <div class="card-head"><h2>Tasks</h2><button class="link" data-action="go" data-tab="tasks">All tasks →</button></div>
-    ${PUSH_SERVER && tabShown('shop') && Shop.choresForMe() ? `<button class="link chores-link" data-action="open-chores">🏠 ${Shop.choresForMe()} chore${Shop.choresForMe() === 1 ? '' : 's'} for you →</button>` : ''}
+    ${PUSH_SERVER && Shop.choresForMe() ? `<button class="link chores-link" data-action="open-chores">🏠 ${Shop.choresForMe()} chore${Shop.choresForMe() === 1 ? '' : 's'} for you →</button>` : ''}
     <ul class="list">${tasks.length ? tasks.map(t => taskRow(t)).join('') : '<li class="empty">No tasks for today.</li>'}</ul>
     <form class="quick" data-form="task">
       <input name="title" placeholder="Quick add a task…" required autocomplete="off" aria-label="New task">
@@ -691,7 +691,7 @@ views.today = () => {
   </section>
 
   <section class="card">
-    <div class="card-head"><h2>How are you feeling?</h2>${tabShown('journal') ? `<button class="link" data-action="open-journal" data-day="${k}">Journal →</button>` : ''}</div>
+    <div class="card-head"><h2>How are you feeling?</h2><button class="link" data-action="open-journal" data-day="${k}">Journal →</button></div>
     <div class="moods">${MOODS.map((m, i) => `<button class="mood ${j.mood === i + 1 ? 'on' : ''}" data-action="mood"
       data-day="${k}" data-v="${i + 1}" aria-label="Mood ${i + 1} of 5">${m}</button>`).join('')}</div>
   </section>
@@ -931,15 +931,17 @@ views.insights = () => insightsView();
 views.review = () => reviewView();
 
 // Tabs that can be hidden from the bottom bar (Today always stays)
+// Tabs live either in the bottom bar or in the ☰ Menu (Today always stays in the bar)
 const OPTIONAL_TABS = ['tasks', 'habits', 'money', 'office', 'shop', 'journal'];
-const tabShown = t => !(state.settings.hiddenTabs || []).includes(t);
+const TAB_ICONS = { tasks: '✅', habits: '🔁', money: '🧾', office: '💼', shop: '🛒', journal: '📓' };
+const tabShown = t => !(state.settings.hiddenTabs || []).includes(t);   // shown in the bottom bar
+const menuTabs = () => OPTIONAL_TABS.filter(t => !tabShown(t));
 
 // ---------- render ----------
 function render() {
   ui.day = today();
   $('#title').textContent = TABS[ui.tab];
   document.title = `${TABS[ui.tab]} · Juned Daily`;
-  if (OPTIONAL_TABS.includes(ui.tab) && !tabShown(ui.tab)) ui.tab = 'today';
   const visibleTabs = [...document.querySelectorAll('.tabs button')].filter(b => { const show = tabShown(b.dataset.tab); b.hidden = !show; return show; });
   $('.tabs').style.gridTemplateColumns = `repeat(${visibleTabs.length}, 1fr)`;
   const badges = tabBadges();
@@ -1074,7 +1076,7 @@ function nudgeList() {
   }
   if (n.evening.on) {
     out.push({ id: 'nudge-evening', kind: 'nudge', title: `🌙 ${withName('How was your day')}?`, time: n.evening.time, repeat: 'daily', start: k,
-      body: tabShown('journal') ? 'Tap to log your mood and a few words.' : 'Tap to log your mood for today.', bodyDate: '', fallback: 'Tap to log your mood and a few words.', url: tabShown('journal') ? './?tab=journal' : './?tab=today',
+      body: 'Tap to log your mood and a few words.', bodyDate: '', fallback: 'Tap to log your mood and a few words.', url: './?tab=journal',
       skip: [k].filter(x => state.journal[x] && state.journal[x].mood) });
   }
   return out;
@@ -1196,9 +1198,14 @@ function settingsBody(page) {
       </label>
       <span class="lbl">Theme</span>
       ${themePickerHtml()}
-      <span class="lbl">Tabs in the bottom bar</span>
-      <p class="meta">Tap to show or hide. Today always stays.</p>
-      <div class="chips tab-picker">${OPTIONAL_TABS.map(t => `<button type="button" class="chip ${tabShown(t) ? 'on' : ''}" data-action="toggle-tab" data-tab="${t}" aria-pressed="${tabShown(t)}">${tabShown(t) ? '✓ ' : ''}${TABS[t]}</button>`).join('')}</div>`;
+      <span class="lbl">Where each tab lives</span>
+      <p class="meta">📌 Bottom bar = one tap away. ☰ Menu = tucked into the menu. Today always stays in the bar.</p>
+      <div class="tab-places">${OPTIONAL_TABS.map(t => `<div class="tab-place">
+        <span class="grow"><span class="tp-icon">${TAB_ICONS[t]}</span> ${TABS[t]}</span>
+        <div class="seg-mini" role="radiogroup" aria-label="${TABS[t]}">
+          <button type="button" class="${tabShown(t) ? 'on' : ''}" role="radio" aria-checked="${tabShown(t)}" data-action="tab-place" data-tab="${t}" data-place="bar">📌 Bar</button>
+          <button type="button" class="${tabShown(t) ? '' : 'on'}" role="radio" aria-checked="${!tabShown(t)}" data-action="tab-place" data-tab="${t}" data-place="menu">☰ Menu</button>
+        </div></div>`).join('')}</div>`;
     case 'notifications': return notifySettings();
     case 'expense': return `
       <label class="lbl">Currency
@@ -1235,7 +1242,10 @@ function settingsBody(page) {
   const counts = `${state.tasks.length} tasks · ${state.habits.length} habits · ${state.expenses.length} expenses · ${state.office.shifts.length} work entries`;
   const row = (icon, title, sub, attrs) => `<button type="button" class="menu-row" ${attrs}>
       <span class="menu-icon">${icon}</span><span class="grow"><b>${title}</b><small>${sub}</small></span><span class="chev">›</span></button>`;
+  const TAB_HINTS = { tasks: 'To-dos and routines', habits: 'Daily habits and streaks', money: 'Spending, budgets and bills', office: 'Hours, work tasks and meetings', shop: 'Shopping list and chores', journal: 'Mood, sleep and notes' };
   return `
+    ${menuTabs().length ? `<span class="lbl" style="margin-top:0">More tabs</span>
+    <div class="menu-list" style="margin-bottom:16px">${menuTabs().map(t => row(TAB_ICONS[t], TABS[t], TAB_HINTS[t], `data-action="menu-go" data-tab="${t}"`)).join('')}</div>` : ''}
     <div class="menu-list">
       ${row('📅', 'Weekly review', 'Your week at a glance, compared with the last', 'data-action="menu-go" data-tab="review"')}
       ${row('📊', 'Insights', 'Charts of your habits, mood, spending and work', 'data-action="menu-go" data-tab="insights"')}
@@ -1320,12 +1330,12 @@ document.addEventListener('click', e => {
     case 'quick': openQuick(); break;
     case 'open-review': reviewWeek = b.dataset.week; go('review'); break;
     case 'open-chores': Shop.showChores(); go('shop'); break;
-    case 'toggle-tab': {
-      const t = b.dataset.tab, hidden = new Set(state.settings.hiddenTabs || []);
-      if (hidden.has(t)) hidden.delete(t); else hidden.add(t);
-      state.settings.hiddenTabs = [...hidden];
+    case 'tab-place': {
+      const t = b.dataset.tab, inMenu = new Set(state.settings.hiddenTabs || []);
+      if (b.dataset.place === 'menu') inMenu.add(t); else inMenu.delete(t);
+      state.settings.hiddenTabs = [...inMenu];
       save(); render(); refreshSettings();
-      toast(hidden.has(t) ? `${TABS[t]} tab hidden — turn it back on in ☰ Menu → Appearance` : `${TABS[t]} tab shown`);
+      toast(b.dataset.place === 'menu' ? `${TAB_ICONS[t]} ${TABS[t]} moved to ☰ Menu` : `${TAB_ICONS[t]} ${TABS[t]} is in the bottom bar`);
       break;
     }
     case 'close-sheet': $('#sheet').close(); break;
