@@ -552,6 +552,7 @@ const Shop = (() => {
 
   return {
     init, refresh, start, stop, html, mounted, isTyping, newCode,
+    add: text => addText(text, 'auto', 'auto'),
     wipe: () => op({ op: 'wipe' }),
     importDoc: d => op({ op: 'import', doc: d }),
     get items() { return doc.items; },

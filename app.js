@@ -26,7 +26,7 @@ const CATS = {
   in: ['Salary', 'Side income', 'Gift', 'Other'],
 };
 const CURRENCIES = ['USD', 'EUR', 'GBP', 'INR', 'PKR', 'BDT', 'AED', 'SAR', 'CAD', 'AUD', 'JPY', 'NGN'];
-const TABS = { today: 'Today', tasks: 'Tasks', habits: 'Habits', money: 'Money', office: 'Office', shop: 'Shop', journal: 'Journal' };
+const TABS = { today: 'Today', tasks: 'Tasks', habits: 'Habits', money: 'Money', office: 'Office', shop: 'Shop', journal: 'Journal', insights: 'Insights' };
 
 function fmtDate(k) {
   const t = today();
@@ -54,13 +54,19 @@ function guessCurrency() {
 const defaults = () => ({
   tasks: [], habits: [], expenses: [], journal: {},
   office: { shifts: [], daysOff: [], tasks: [], meetings: [] },
-  settings: { currency: guessCurrency(), workHours: 8, name: '' },
+  settings: {
+    currency: guessCurrency(), workHours: 8, name: '',
+    nudges: { morning: { on: true, time: '08:00' }, habits: { on: true, time: '19:00' }, evening: { on: true, time: '21:00' } },
+  },
 });
 
 // Fill in anything missing from older saves or backups
 const hydrate = data => ({
   ...defaults(), ...data,
-  settings: { ...defaults().settings, ...(data.settings || {}) },
+  settings: {
+    ...defaults().settings, ...(data.settings || {}),
+    nudges: { ...defaults().settings.nudges, ...((data.settings || {}).nudges || {}) },
+  },
   office: { ...defaults().office, ...(data.office || {}) },
 });
 
@@ -83,6 +89,11 @@ function save() {
 let state = load();
 const ui = { tab: 'today', month: today().slice(0, 7), jdate: today(), day: today(), office: 'hours' };
 try { const t = localStorage.getItem(KEY + ':tab'); if (TABS[t]) ui.tab = t; } catch { /* ignore */ }
+{
+  const linked = new URLSearchParams(location.search).get('tab');
+  if (TABS[linked]) { ui.tab = linked; history.replaceState(null, '', location.pathname); }
+}
+let justToggled = null;   // gives the tick that was just tapped a little "pop"
 
 // ---------- tasks ----------
 const REPEATS = { none: 'One-time', daily: 'Every day', weekdays: 'Weekdays (Mon–Fri)', weekly: 'Every week', monthly: 'Every month' };
@@ -604,11 +615,19 @@ views.today = () => {
     </section>` : '';
   })()}
 
-  <div class="stats">
-    <div class="stat"><b>${doneN}/${tasks.length}</b><span>Tasks done</span></div>
-    <div class="stat"><b>${habitsDone}/${state.habits.length}</b><span>Habits</span></div>
-    <div class="stat"><b>${money(spentToday)}</b><span>Spent today</span></div>
-  </div>
+  ${(() => {
+    const p = dayProgress(), next = nextUp();
+    return `<section class="card hero">
+      <div class="hero-ring">${ringSvg(p.pct)}<div class="ring-label"><b>${Math.round(p.pct * 100)}%</b><span>done</span></div></div>
+      <div class="grow">
+        <div class="hero-msg">${dayMessage(p)}</div>
+        <div class="meta">✅ ${p.tDone}/${p.tasks} tasks · 🔁 ${p.hDone}/${p.habits} habits</div>
+        <div class="meta">💸 ${money(spentToday)} spent today</div>
+        ${next ? `<div class="meta next-up">⏰ Next: <b>${esc(next.title)}</b> at ${fmtHM(next.time)}</div>` : ''}
+        <button class="link" data-action="go" data-tab="insights">📊 Insights →</button>
+      </div>
+    </section>`;
+  })()}
 
   <section class="card">
     <div class="card-head"><h2>Tasks</h2><button class="link" data-action="go" data-tab="tasks">All tasks →</button></div>
@@ -852,6 +871,8 @@ async function resetShopLink() {
 
 views.shop = () => Shop.html();
 
+views.insights = () => insightsView();
+
 // ---------- render ----------
 function render() {
   ui.day = today();
@@ -863,8 +884,14 @@ function render() {
     if (on) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
   });
   if (ui.tab === 'shop') Shop.start(); else Shop.stop();
+  document.body.dataset.tab = ui.tab;
   $('#view').innerHTML = views[ui.tab]();
   if (ui.tab === 'shop') Shop.mounted();
+  if (ui.tab === 'today') animateRing(dayProgress().pct);
+  if (justToggled) {
+    document.querySelectorAll(`[data-id="${justToggled}"].on`).forEach(el => el.classList.add('pop'));
+    justToggled = null;
+  }
 }
 
 function go(tab) {
@@ -926,7 +953,49 @@ function reminderList() {
     start: createdKey(t),
     // already ticked off → no reminder that day
     skip: isRepeat(t) ? [addDays(k, -1), k, addDays(k, 1)].filter(d => t.doneDates && t.doneDates[d]) : [],
-  }));
+  })).concat(nudgeList());
+}
+
+// ---------- daily nudges (morning brief, habit reminder, evening check-in) ----------
+const NUDGES = {
+  morning: ['☀️ Morning brief', 'Your tasks and habits for the day'],
+  habits: ['🔁 Habit reminder', 'Habits you haven’t done yet'],
+  evening: ['🌙 Evening check-in', 'Log your mood and how the day went'],
+};
+
+// tasks due on a given day (overdue one-off tasks count for today)
+function tasksOn(d) {
+  return state.tasks.filter(t => isRepeat(t) ? dueOn(t, d) && !(t.doneDates && t.doneDates[d]) : !t.done && (t.due ? t.due <= d : d === today()));
+}
+
+// The server sends these at the set time. The text is worked out here for the
+// next time each one fires; if the app hasn't been opened since, a general line is used.
+function nudgeList() {
+  const n = state.settings.nudges, k = today(), out = [];
+  const nextDay = hm => (atTime(k, hm) > Date.now() ? k : addDays(k, 1));
+  if (n.morning.on) {
+    const d = nextDay(n.morning.time), tasks = tasksOn(d), habits = state.habits.length;
+    const first = tasks.filter(t => t.time).sort((a, b) => a.time.localeCompare(b.time))[0];
+    const parts = [tasks.length && `${tasks.length} task${tasks.length === 1 ? '' : 's'}`, habits && `${habits} habit${habits === 1 ? '' : 's'}`].filter(Boolean);
+    out.push({ id: 'nudge-morning', kind: 'nudge', title: 'Good morning ☀️', time: n.morning.time, repeat: 'daily', start: k,
+      body: parts.length ? `Today: ${parts.join(' and ')}${first ? ` · first up: ${first.title} at ${fmtHM(first.time)}` : ''}` : 'A fresh day — plan something good.',
+      bodyDate: d, fallback: 'Open Juned Daily to plan your day.', url: './?tab=today', skip: [] });
+  }
+  if (n.habits.on && state.habits.length) {
+    const d = nextDay(n.habits.time);
+    const left = state.habits.filter(h => !h.log[d]);
+    const top = left.slice().sort((a, b) => streak(b) - streak(a))[0];
+    out.push({ id: 'nudge-habits', kind: 'nudge', title: '🔁 Habits still to do', time: n.habits.time, repeat: 'daily', start: k,
+      body: `${left.map(h => `${h.emoji || ''} ${h.name}`.trim()).join(', ')}${top && streak(top) >= 2 ? ` — keep your ${streak(top)}-day streak going!` : ''}`,
+      bodyDate: d, fallback: 'Don’t forget your habits today.', url: './?tab=habits',
+      skip: [k, addDays(k, 1)].filter(x => state.habits.every(h => h.log[x])) });
+  }
+  if (n.evening.on) {
+    out.push({ id: 'nudge-evening', kind: 'nudge', title: '🌙 How was your day?', time: n.evening.time, repeat: 'daily', start: k,
+      body: 'Tap to log your mood and a few words.', bodyDate: '', fallback: 'Tap to log your mood and a few words.', url: './?tab=journal',
+      skip: [k].filter(x => state.journal[x] && state.journal[x].mood) });
+  }
+  return out;
 }
 
 let syncTimer, lastSync = '';
@@ -1008,8 +1077,15 @@ function notifySettings() {
   const count = state.tasks.filter(t => t.remind && t.time).length;
   if (!PUSH_SERVER) return '<p class="meta">Reminder server not connected yet.</p>';
   if (state.settings.notify) return `
-    <p class="meta">🔔 Notifications are on for this device · ${count} reminder${count === 1 ? '' : 's'} set.</p>
-    <div class="btns"><button type="button" class="btn" data-action="notify-test">Send a test</button>
+    <p class="meta">🔔 Notifications are on for this device · ${count} task reminder${count === 1 ? '' : 's'} set.</p>
+    <div class="nudges">${Object.entries(NUDGES).map(([key, [label, hint]]) => {
+      const nd = state.settings.nudges[key];
+      return `<div class="nudge-row">
+        <label class="toggle"><input type="checkbox" data-nudge="${key}" ${nd.on ? 'checked' : ''}><span><b>${label}</b><small>${hint}</small></span></label>
+        <select data-nudge-time="${key}" aria-label="${label} time" ${nd.on ? '' : 'disabled'}>${timeOptions().replace(`value="${nd.time}"`, `value="${nd.time}" selected`)}</select>
+      </div>`;
+    }).join('')}</div>
+    <div class="btns" style="margin-top:10px"><button type="button" class="btn" data-action="notify-test">Send a test</button>
       <button type="button" class="btn danger" data-action="notify-off">Turn off</button></div>`;
   return `
     <p class="meta">Get a notification at the time you set on a task. On iPhone, open Juned Daily from its Home Screen icon first.</p>
@@ -1091,7 +1167,12 @@ document.addEventListener('click', e => {
     case 'go': go(b.dataset.tab); break;
     case 'settings': openSettings(); break;
 
-    case 'toggle-task': toggleTask(id); render(); break;
+    case 'toggle-task': {
+      const before = dayProgress();
+      toggleTask(id); justToggled = id; render();
+      celebrateDay(before);
+      break;
+    }
     case 'del-task': removeWithUndo('tasks', id, 'Task'); break;
     case 'toggle-remind': {
       const t = state.tasks.find(x => x.id === id);
@@ -1101,6 +1182,9 @@ document.addEventListener('click', e => {
       else toast(t.remind ? `🔔 Reminder on for ${fmtHM(t.time)}` : 'Reminder off');
       break;
     }
+    case 'quick': openQuick(); break;
+    case 'close-sheet': $('#sheet').close(); break;
+    case 'irange': insightRange = Number(b.dataset.v); render(); break;
     case 'shop-share': shareShopLink(); break;
     case 'shop-reset': resetShopLink(); break;
     case 'notify-on': enableNotifications(); break;
@@ -1110,8 +1194,11 @@ document.addEventListener('click', e => {
     case 'toggle-habit': {
       const h = state.habits.find(x => x.id === id);
       if (!h) break;
+      const before = dayProgress();
       if (h.log[day]) delete h.log[day]; else h.log[day] = true;
+      justToggled = id;
       save(); render();
+      if (!celebrateStreak(h)) celebrateDay(before);
       break;
     }
     case 'del-habit': {
@@ -1273,6 +1360,12 @@ document.addEventListener('change', e => {
     if (sel) sel.innerHTML = catOptions(t.value);
   } else if (t.id === 'currency') {
     state.settings.currency = t.value; save(); startShop(); render();
+  } else if (t.dataset.nudge) {
+    state.settings.nudges[t.dataset.nudge].on = t.checked; save(); refreshSettings();
+    toast(t.checked ? `${NUDGES[t.dataset.nudge][0]} on` : `${NUDGES[t.dataset.nudge][0]} off`);
+  } else if (t.dataset.nudgeTime) {
+    state.settings.nudges[t.dataset.nudgeTime].time = t.value; save();
+    toast(`${NUDGES[t.dataset.nudgeTime][0]} at ${fmtHM(t.value)}`);
   } else if (t.id === 'myName') {
     state.settings.name = t.value.trim().slice(0, 30) || 'Me'; save(); startShop();
   } else if (t.id === 'workHours') {

@@ -150,7 +150,21 @@ function cleanReminder(r) {
     date: DATE.test(r.date) ? r.date : null,
     start: DATE.test(r.start) ? r.start : null,
     skip: Array.isArray(r.skip) ? r.skip.filter(x => DATE.test(x)).slice(0, 10) : [],
+    // daily nudges (morning brief, habits, evening check-in) carry their own text
+    kind: r.kind === 'nudge' ? 'nudge' : 'task',
+    body: String(r.body || '').slice(0, 200),
+    bodyDate: DATE.test(r.bodyDate) ? r.bodyDate : '',
+    fallback: String(r.fallback || '').slice(0, 200),
+    url: /^\.\/(\?tab=[a-z]+)?$/.test(r.url || '') ? r.url : './',
   };
+}
+
+function reminderMessage(r, now) {
+  if (r.kind === 'nudge') {
+    const body = r.bodyDate && r.bodyDate !== now.date ? r.fallback : (r.body || r.fallback);
+    return { title: r.title, body, tag: r.id, url: r.url };
+  }
+  return { title: `\u{23f0} ${r.title}`, body: 'Reminder from Juned Daily', tag: r.id, url: './' };
 }
 
 // ---------- shared shopping list ----------
@@ -433,15 +447,15 @@ export default {
     for (const [id, dev] of Object.entries(devices)) {
       let now;
       try { now = localNow(event.scheduledTime, dev.tz); } catch { now = localNow(event.scheduledTime, 'UTC'); }
-      for (const r of dev.reminders) if (isDue(r, now)) due.push({ id, dev, r });
+      for (const r of dev.reminders) if (isDue(r, now)) due.push({ id, dev, r, now });
     }
     if (!due.length) return;
 
     const keys = await vapidKeys(env);
     const gone = new Set();
-    await Promise.all(due.map(async ({ id, dev, r }) => {
+    await Promise.all(due.map(async ({ id, dev, r, now }) => {
       try {
-        const res = await sendPush(dev.subscription, { title: `\u{23f0} ${r.title}`, body: 'Reminder from Juned Daily', tag: r.id, url: './' }, keys);
+        const res = await sendPush(dev.subscription, reminderMessage(r, now), keys);
         if (res.status === 404 || res.status === 410) gone.add(id);   // device unsubscribed
       } catch { /* try again next time */ }
     }));

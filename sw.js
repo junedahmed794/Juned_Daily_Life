@@ -1,7 +1,7 @@
 // Network-first service worker: always gets the latest version when online,
 // falls back to the cached copy when offline.
-const CACHE = 'juned-daily-v11';
-const ASSETS = ['./', 'index.html', 'styles.css', 'app.js', 'theme.js', 'config.js', 'shop.js', 'xlsx.js', 'manifest.json', 'icon.svg', 'icon-512.png'];
+const CACHE = 'juned-daily-v12';
+const ASSETS = ['./', 'index.html', 'styles.css', 'app.js', 'theme.js', 'config.js', 'shop.js', 'xlsx.js', 'celebrate.js', 'quickadd.js', 'insights.js', 'manifest.json', 'icon.svg', 'icon-512.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)));
@@ -45,6 +45,8 @@ self.addEventListener('notificationclick', e => {
   const url = new URL((e.notification.data && e.notification.data.url) || './', self.registration.scope).href;
   e.waitUntil(clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
     const open = list.find(c => 'focus' in c);
-    return open ? open.focus() : clients.openWindow(url);
+    if (!open) return clients.openWindow(url);
+    // go to the screen the notification is about (e.g. Journal for the evening check-in)
+    return (open.url !== url && 'navigate' in open ? open.navigate(url).catch(() => open) : Promise.resolve(open)).then(c => (c || open).focus());
   }));
 });
