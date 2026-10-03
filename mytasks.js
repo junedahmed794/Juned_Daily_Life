@@ -108,12 +108,13 @@ const MyTasks = (() => {
     if (isRepeat(t)) meta = repeatLabel(t);
     else if (t.done && t.doneAt) meta = `Done ${fmtDate(t.doneAt).toLowerCase()}`;
     else if (t.due) meta = t.due < k ? `<span class="overdue">Overdue · ${fmtDate(t.due)}</span>` : fmtDate(t.due);
-    if (t.time) meta += `${meta ? ' · ' : ''}🕘 ${fmtHM(t.time)}${t.remind ? ' 🔔' : ''}`;
+    if (t.time) meta += `${meta ? ' · ' : ''}🕘 ${fmtHM(t.time)}`;
     return `<li class="row ${done ? 'done' : ''}">
       <button class="check ${done ? 'on' : ''} ${check ? '' : 'ghost'}" data-mt="toggle" data-id="${t.id}" aria-label="${done ? 'Mark not done' : 'Mark done'}: ${esc(t.title)}"></button>
       <div class="grow tap" data-mt="edit" data-id="${t.id}"><div class="row-title">${esc(t.title)}</div>${meta ? `<div class="meta">${meta}</div>` : ''}</div>
-      <button class="icon-btn edit-btn" data-mt="edit" data-id="${t.id}" aria-label="Edit task">✏️</button>
-      <button class="icon-btn" data-mt="del" data-id="${t.id}" aria-label="Delete task">×</button>
+      <div class="acts">${t.time ? `<span class="act bell ${t.remind ? 'on' : ''}" aria-label="${t.remind ? 'Reminder on' : 'No reminder'}">${t.remind ? ICONS.bell : ICONS.bellOff}</span>` : ''}
+        <button class="act edit" data-mt="edit" data-id="${t.id}" aria-label="Edit task">${ICONS.pencil}</button>
+        <button class="act del" data-mt="del" data-id="${t.id}" aria-label="Delete task">${ICONS.trash}</button></div>
     </li>`;
   }
   const section = (title, list, empty, check) => `<h2 class="sec">${title}</h2><div class="card"><ul class="list">${list.length ? list.map(t => row(t, check)).join('') : `<li class="empty">${empty}</li>`}</ul></div>`;

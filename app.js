@@ -175,14 +175,14 @@ function taskRow(t, { check = true } = {}) {
   else if (t.due) meta = t.due < k ? `<span class="overdue">Overdue · ${fmtDate(t.due)}</span>` : fmtDate(t.due);
   if (t.time) meta += `${meta ? ' · ' : ''}🕘 ${fmtHM(t.time)}`;
   const bell = t.time && !(t.repeat === 'none' && t.done)
-    ? `<button class="icon-btn bell ${t.remind ? 'on' : ''}" data-action="toggle-remind" data-id="${t.id}"
-        aria-label="${t.remind ? 'Turn off reminder' : 'Turn on reminder'}" aria-pressed="${!!t.remind}">${t.remind ? '🔔' : '🔕'}</button>` : '';
+    ? `<button class="act bell ${t.remind ? 'on' : ''}" data-action="toggle-remind" data-id="${t.id}"
+        aria-label="${t.remind ? 'Turn off reminder' : 'Turn on reminder'}" aria-pressed="${!!t.remind}">${t.remind ? ICONS.bell : ICONS.bellOff}</button>` : '';
   return `<li class="row ${done ? 'done' : ''}">
     <button class="check ${done ? 'on' : ''} ${check ? '' : 'ghost'}" data-action="toggle-task" data-id="${t.id}"
       aria-label="${done ? 'Mark not done' : 'Mark done'}: ${esc(t.title)}" ${check ? '' : 'tabindex="-1"'}></button>
     <div class="grow tap" data-action="edit-task" data-id="${t.id}"><div class="row-title">${esc(t.title)}</div>${meta ? `<div class="meta">${meta}</div>` : ''}</div>
-    ${bell}<button class="icon-btn edit-btn" data-action="edit-task" data-id="${t.id}" aria-label="Edit task">✏️</button>
-    <button class="icon-btn" data-action="del-task" data-id="${t.id}" aria-label="Delete task">×</button>
+    <div class="acts">${bell}<button class="act edit" data-action="edit-task" data-id="${t.id}" aria-label="Edit task">${ICONS.pencil}</button>
+    <button class="act del" data-action="del-task" data-id="${t.id}" aria-label="Delete task">${ICONS.trash}</button></div>
   </li>`;
 }
 
@@ -982,10 +982,15 @@ function render() {
   if (OPTIONAL_TABS.includes(ui.tab) && !tabShown(ui.tab)) ui.tab = 'today';
   const visibleTabs = [...document.querySelectorAll('.tabs button')].filter(b => { const show = tabShown(b.dataset.tab); b.hidden = !show; return show; });
   $('.tabs').style.gridTemplateColumns = `repeat(${visibleTabs.length}, 1fr)`;
+  const badges = tabBadges();
   document.querySelectorAll('.tabs button').forEach(b => {
     const on = b.dataset.tab === ui.tab;
+    if (on && !b.classList.contains('active')) { b.classList.remove('bounce'); void b.offsetWidth; b.classList.add('bounce'); }
     b.classList.toggle('active', on);
     if (on) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
+    const n = badges[b.dataset.tab];
+    if (n) b.dataset.badge = n > 99 ? '99+' : n; else delete b.dataset.badge;
+    b.classList.toggle('live', b.dataset.tab === 'office' && !!openShift());
   });
   if (ui.tab === 'shop') Shop.start(); else Shop.stop();
   document.body.dataset.tab = ui.tab;
@@ -1000,6 +1005,17 @@ function render() {
 
 // opening Tasks fetches any task lists shared with you
 const refreshShared = () => { if (PUSH_SERVER) Shop.refresh().then(() => { if (ui.tab === 'tasks') render(); }); };
+
+// Little counts on the bottom tabs
+function tabBadges() {
+  const k = today();
+  return {
+    tasks: todaysTasks().filter(t => !isDone(t, k)).length,
+    habits: state.habits.filter(h => !h.log[k]).length,
+    money: Privacy.locked() ? 0 : state.bills.filter(b => b.next <= addDays(k, 3)).length,
+    shop: PUSH_SERVER ? Shop.items.filter(i => !i.done).length + Shop.choresForMe() : 0,
+  };
+}
 
 function go(tab) {
   if (tab === 'tasks' && ui.tab !== 'tasks') setTimeout(refreshShared, 0);
