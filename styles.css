@@ -570,3 +570,8 @@ ul.plain li:last-child { border-bottom: 0; }
 .buy-foot { padding-top: 12px; border-top: 1px solid var(--line); margin-top: 8px; }
 #shopSheet:has(.buy-sheet) { max-height: 90vh; }
 .buy-sort { grid-template-columns: repeat(3, 1fr); margin: 10px 0 0; }
+
+/* ↻ refresh */
+.top-actions { display: flex; gap: 2px; align-items: center; }
+@keyframes spin { to { transform: rotate(360deg); } }
+[data-refresh].spinning svg { animation: spin .7s linear infinite; }

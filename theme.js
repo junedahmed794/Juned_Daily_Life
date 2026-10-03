@@ -46,3 +46,15 @@ document.addEventListener('DOMContentLoaded', () => applyTheme(currentTheme()));
 
 // No pinch-to-zoom (iPhone ignores the viewport setting on its own)
 ['gesturestart', 'gesturechange', 'gestureend'].forEach(t => document.addEventListener(t, e => e.preventDefault(), { passive: false }));
+
+// ↻ Refresh: fetch the newest version of the app and the latest shared data, stay on the same screen
+document.addEventListener('click', async e => {
+  const b = e.target.closest && e.target.closest('[data-refresh]');
+  if (!b || b.classList.contains('spinning')) return;
+  b.classList.add('spinning');
+  try {
+    const reg = 'serviceWorker' in navigator && await navigator.serviceWorker.getRegistration();
+    if (reg) await Promise.race([reg.update(), new Promise(r => setTimeout(r, 2500))]);
+  } catch { /* offline — reload what we have */ }
+  location.reload();
+});
