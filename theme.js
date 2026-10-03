@@ -43,3 +43,6 @@ document.addEventListener('click', e => {
 // keep the status bar right when the phone switches light/dark in Auto
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => applyTheme(currentTheme()));
 document.addEventListener('DOMContentLoaded', () => applyTheme(currentTheme()));
+
+// No pinch-to-zoom (iPhone ignores the viewport setting on its own)
+['gesturestart', 'gesturechange', 'gestureend'].forEach(t => document.addEventListener(t, e => e.preventDefault(), { passive: false }));

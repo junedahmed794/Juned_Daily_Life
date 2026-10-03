@@ -464,3 +464,9 @@ main { padding-bottom: 84px; }
 .nudge-row select { width: 112px; flex: none; }
 .tab-picker .chip.on { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
 .tabs button[hidden] { display: none; }
+
+/* ---------- header icons & no zoom ---------- */
+.topbar .icon-btn { width: 46px; height: 46px; font-size: 26px; border-radius: 12px; }
+#settingsBtn { font-size: 30px; }
+html { touch-action: manipulation; -webkit-text-size-adjust: 100%; }   /* no double-tap zoom */
+input, select, textarea { font-size: max(16px, 1em); }                 /* iPhone won't zoom into a text box */
