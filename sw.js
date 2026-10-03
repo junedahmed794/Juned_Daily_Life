@@ -1,6 +1,6 @@
 // Network-first service worker: always gets the latest version when online,
 // falls back to the cached copy when offline.
-const CACHE = 'juned-daily-v13';
+const CACHE = 'juned-daily-v15';
 const ASSETS = ['./', 'index.html', 'styles.css', 'app.js', 'theme.js', 'config.js', 'shop.js', 'xlsx.js', 'celebrate.js', 'quickadd.js', 'insights.js', 'manifest.json', 'icon.svg', 'icon-512.png'];
 
 self.addEventListener('install', e => {
@@ -15,8 +15,10 @@ self.addEventListener('activate', e => {
 
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET' || new URL(e.request.url).origin !== location.origin) return;
+  // always ask the server for the newest version (skips the browser's 10-minute cache)
+  const fresh = e.request.mode === 'navigate' ? fetch(e.request.url, { cache: 'no-cache' }) : fetch(e.request, { cache: 'no-cache' });
   e.respondWith(
-    fetch(e.request)
+    fresh
       .then(res => {
         const copy = res.clone();
         caches.open(CACHE).then(c => c.put(e.request, copy));

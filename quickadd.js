@@ -123,7 +123,7 @@ function parseQuick(raw, forced = 'auto') {
     else if (/^(work|office)\s*:/i.test(text)) type = 'work';
     else if (habit && /\b(done|did|finished|completed|✓|✔)\b/i.test(text)) type = 'habit';
     else if (/^(slept|sleep|mood|feeling|felt|today was|journal|diary|dear diary)\b/i.test(text) || /\bslept\s+\d/i.test(text)) type = 'journal';
-    else if (amt && /\b(salary|paycheck|pay check|got paid|income|received|refund|bonus)\b/i.test(text)) type = 'income';
+    else if (amt && state.settings.trackIncome && /\b(salary|paycheck|pay check|got paid|income|received|refund|bonus)\b/i.test(text)) type = 'income';
     else if (amt && !/\b(at|am|pm|tomorrow|today|tonight|every|daily|remind)\b/i.test(text)
       && (amt.marked || /^(spent|paid|bought)\b/i.test(text) || qSpendCategory(text) !== 'Other')) type = 'expense';
     else type = 'task';
@@ -187,11 +187,11 @@ function openQuick() {
   dlg.innerHTML = `<form class="sheet quick-sheet" data-quick>
     <h2>Quick add</h2>
     <input name="q" placeholder="Type anything…" autocomplete="off" enterkeyhint="done" aria-label="What do you want to add?">
-    <div class="chips qtypes" role="radiogroup" aria-label="Type">${Object.entries(QUICK_TYPES).map(([k, l]) =>
+    <div class="chips qtypes" role="radiogroup" aria-label="Type">${Object.entries(QUICK_TYPES).filter(([k]) => k !== 'income' || state.settings.trackIncome).map(([k, l]) =>
       `<button type="button" class="chip ${k === 'auto' ? 'on' : ''}" data-qtype="${k}" role="radio" aria-checked="${k === 'auto'}">${l}</button>`).join('')}</div>
     <div class="qpreview" id="qpreview" aria-live="polite">${quickPreview(null)}</div>
     <p class="meta qexamples">Try: <b>pay rent tomorrow 9am</b> · <b>lunch 12.50</b> · <b>slept 7h, feeling good</b> ·
-      <b>buy milk, eggs</b> · <b>water done</b> · <b>gym every weekday 6pm</b> · <b>clock in</b></p>
+      <b>buy milk, eggs</b> · <b>water done</b> · <b>gym every weekday 6pm</b> · <b>clock in</b>${state.settings.trackIncome ? ' · <b>salary 3200</b>' : ''}</p>
     <div class="btns end" style="margin-top:14px"><button type="button" class="btn" data-action="close-sheet">Cancel</button>
       <button class="btn primary">Add</button></div>
   </form>`;

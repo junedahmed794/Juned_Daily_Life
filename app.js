@@ -55,7 +55,7 @@ const defaults = () => ({
   tasks: [], habits: [], expenses: [], journal: {},
   office: { shifts: [], daysOff: [], tasks: [], meetings: [] },
   settings: {
-    currency: guessCurrency(), workHours: 8, name: '', hiddenTabs: ['journal'],
+    currency: guessCurrency(), workHours: 8, name: '', hiddenTabs: ['journal'], trackIncome: false,
     nudges: { morning: { on: true, time: '08:00' }, habits: { on: true, time: '19:00' }, evening: { on: true, time: '21:00' } },
   },
 });
@@ -495,8 +495,7 @@ function buildWeeklyReport(ws) {
     ['Routines done', s.routineDue ? `${s.routineDone} of ${s.routineDue}` : '—'],
     ['Habit completion', P(s.habitPct)],
     ['Total spent', M(s.spent)],
-    ['Total income', M(s.income)],
-    ['Net', { v: s.net, s: S.moneyBold }],
+    ...(state.settings.trackIncome ? [['Total income', M(s.income)], ['Net', { v: s.net, s: S.moneyBold }]] : []),
     ['Top spending category', s.cats.length ? s.cats[0][0] : '—'],
     ['Journal days', `${s.journalDays} of ${s.days.length}`],
     ['Average mood (1–5)', D1(s.avgMood)],
@@ -531,8 +530,9 @@ function buildWeeklyReport(ws) {
   ]));
 
   // Weekly Tracker: one row per week, from the first week with data up to this one
+  const inc = state.settings.trackIncome;
   const tracker = [[H('Week starting'), H('Week ending'), H('Tasks done'), H('Routines'), H('Habits'),
-    H('Spent'), H('Income'), H('Net'), H('Journal days'), H('Avg mood'), H('Avg sleep'),
+    H('Spent'), ...(inc ? [H('Income'), H('Net')] : []), H('Journal days'), H('Avg mood'), H('Avg sleep'),
     H('Work hours'), H('Overtime'), H('Work tasks'), H('Meetings')]];
   const lastWeek = weekStart(today());
   for (let w = weekStart(firstDataDay()); w <= lastWeek; w = addDays(w, 7)) {
@@ -540,14 +540,14 @@ function buildWeeklyReport(ws) {
     tracker.push([
       { v: excelDate(x.ws), s: S.date }, { v: excelDate(x.we), s: S.date },
       x.tasksDone, P(x.routinePct), P(x.habitPct),
-      M(x.spent), M(x.income), M(x.net), x.journalDays, D1(x.avgMood), D1(x.avgSleep),
+      M(x.spent), ...(inc ? [M(x.income), M(x.net)] : []), x.journalDays, D1(x.avgMood), D1(x.avgSleep),
       D1(x.office.total / 60), D1(x.office.overtime / 60), x.office.tasksDone, x.office.meetings,
     ]);
   }
 
   return makeXlsx([
     { name: 'This Week', rows, widths: [26, 14, 12, 12, 15, 11, 10] },
-    { name: 'Weekly Tracker', rows: tracker, widths: [15, 15, 11, 11, 10, 12, 12, 12, 13, 10, 10, 11, 10, 11, 10], freeze: 1 },
+    { name: 'Weekly Tracker', rows: tracker, widths: [15, 15, 11, 11, 10, 12, ...(inc ? [12, 12] : []), 13, 10, 10, 11, 10, 11, 10], freeze: 1 },
   ], { moneyFormat: moneyFormat() });
 }
 
@@ -711,9 +711,12 @@ views.money = () => {
   const m = ui.month;
   const [y, mo] = m.split('-').map(Number);
   const label = new Date(y, mo - 1, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
-  const items = state.expenses.filter(e => e.date.startsWith(m))
+  const withIncome = state.settings.trackIncome;
+  const items = state.expenses.filter(e => e.date.startsWith(m) && (withIncome || e.type === 'out'))
     .sort((a, b) => b.date.localeCompare(a.date) || b.created - a.created);
   const outItems = items.filter(e => e.type === 'out');
+  // expense-only view: daily average and biggest category instead of income/net
+  const daysIn = m === today().slice(0, 7) ? parseKey(today()).getDate() : new Date(y, mo, 0).getDate();
   const spent = sum(outItems);
   const income = sum(items.filter(e => e.type === 'in'));
   const net = income - spent;
@@ -728,12 +731,12 @@ views.money = () => {
 
   return `
   <form class="card add" data-form="expense">
-    <div class="seg" role="radiogroup" aria-label="Type">
+    ${withIncome ? `<div class="seg" role="radiogroup" aria-label="Type">
       <label><input type="radio" name="type" value="out" checked> Expense</label>
       <label><input type="radio" name="type" value="in"> Income</label>
-    </div>
-    <div class="add-row">
-      <input name="amount" inputmode="decimal" placeholder="Amount" required aria-label="Amount">
+    </div>` : '<input type="hidden" name="type" value="out">'}
+    <div class="add-row" ${withIncome ? '' : 'style="margin-top:0"'}>
+      <input name="amount" inputmode="decimal" placeholder="Amount spent" required aria-label="Amount">
       <select name="category" aria-label="Category">${catOptions('out')}</select>
     </div>
     <div class="add-row">
@@ -749,10 +752,13 @@ views.money = () => {
       <strong>${label}</strong>
       <button data-action="month" data-delta="1" aria-label="Next month" ${m >= today().slice(0, 7) ? 'disabled' : ''}>›</button>
     </div>
-    <div class="totals">
+    <div class="totals">${withIncome ? `
       <div><b>${money(spent)}</b><span>Spent</span></div>
       <div><b>${money(income)}</b><span>Income</span></div>
-      <div><b class="${net >= 0 ? 'pos' : 'neg'}">${money(net)}</b><span>Net</span></div>
+      <div><b class="${net >= 0 ? 'pos' : 'neg'}">${money(net)}</b><span>Net</span></div>` : `
+      <div><b>${money(spent)}</b><span>Spent</span></div>
+      <div><b>${money(daysIn ? spent / daysIn : 0)}</b><span>Per day</span></div>
+      <div><b>${cats.length ? esc(cats[0][0]) : '—'}</b><span>Top category</span></div>`}
     </div>
     ${cats.length ? `<div class="bars">${cats.map(([c, v]) => `
       <div class="bar-row"><span>${esc(c)}</span><div class="bar"><i style="width:${(v / max * 100).toFixed(1)}%"></i></div>
@@ -1109,6 +1115,8 @@ function openSettings() {
   <form method="dialog" class="sheet">
     <h2>Settings</h2>
     <p class="meta">${counts}</p>
+    <label class="toggle" style="margin-top:14px"><input type="checkbox" id="trackIncome" ${state.settings.trackIncome ? 'checked' : ''}>
+      <span><b>💵 Track income too</b><small class="meta" style="display:block;font-weight:400">Off: Money is an expense tracker only. Any income you entered stays saved but hidden.</small></span></label>
     <span class="lbl">Tabs in the bottom bar</span>
     <div class="chips tab-picker">${OPTIONAL_TABS.map(t => `<button type="button" class="chip ${tabShown(t) ? 'on' : ''}" data-action="toggle-tab" data-tab="${t}" aria-pressed="${tabShown(t)}">${tabShown(t) ? '✓ ' : ''}${TABS[t]}</button>`).join('')}</div>
     <span class="lbl">Theme</span>
@@ -1377,6 +1385,9 @@ document.addEventListener('change', e => {
     if (sel) sel.innerHTML = catOptions(t.value);
   } else if (t.id === 'currency') {
     state.settings.currency = t.value; save(); startShop(); render();
+  } else if (t.id === 'trackIncome') {
+    state.settings.trackIncome = t.checked; save(); render();
+    toast(t.checked ? '💵 Income tracking on' : '💸 Expense tracker only — income hidden');
   } else if (t.dataset.nudge) {
     state.settings.nudges[t.dataset.nudge].on = t.checked; save(); refreshSettings();
     toast(t.checked ? `${NUDGES[t.dataset.nudge][0]} on` : `${NUDGES[t.dataset.nudge][0]} off`);
