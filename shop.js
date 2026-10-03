@@ -34,7 +34,6 @@ const Shop = (() => {
   const blankDoc = () => ({ items: [], history: {}, staples: [], stores: [], order: Object.keys(SECTIONS), trips: [], shopping: null, currency: '', chores: [] });
 
   const cfg = { code: '', name: '', device: '', currency: '', owner: false, onChange: () => {}, onMessage: () => {}, onLogMoney: null };
-  let editBuy = false;   // "Buy again" chips show ✕ to remove them
   let doc = blankDoc(), status = 'loading', pollTimer = null, busy = 0, wakeLock = null, refocus = false, dlg = null, draftOrder = [];
   let ui = { mode: 'list', store: '', view: 'shop' };
 
@@ -264,20 +263,59 @@ const Shop = (() => {
   }
 
   // ---------- rendering ----------
-  function suggestHtml(q) {
+  // past items not on the list right now
+  function buyAgainList() {
     const onList = new Set(doc.items.filter(i => !i.done).map(i => key(i.name)));
-    const hist = Object.entries(doc.history).filter(([k]) => !onList.has(k));
-    q = key(q);
-    let list = [], label = '';
-    if (q && !/[,;\n]/.test(q)) list = hist.filter(([k]) => k.startsWith(q) || k.includes(` ${q}`)).sort((a, b) => b[1].n - a[1].n).slice(0, 6);
-    else if (!q) { list = hist.sort((a, b) => b[1].n - a[1].n || String(b[1].last).localeCompare(String(a[1].last))).slice(0, 12); label = 'Buy again'; }
-    if (!list.length) { editBuy = false; return ''; }
-    const editing = editBuy && !!label;
-    return `${label ? `<span class="chips-label">${label}</span>
-      <button type="button" class="chip edit" data-shop="buy-edit">${editing ? '✓ Done' : '✏️ Edit'}</button>` : ''}${list.map(([k, h]) => editing
-      ? `<button type="button" class="chip forget" data-shop="forget" data-key="${esc(k)}" aria-label="Remove ${esc(h.name)} from Buy again">${esc(h.name)} ✕</button>`
-      : `<button type="button" class="chip" data-shop="sugg" data-key="${esc(k)}">${(SECTIONS[h.cat] || SECTIONS.Other)[0]} ${esc(h.name)}</button>`).join('')}`;
+    return Object.entries(doc.history).filter(([k]) => !onList.has(k));
   }
+
+  // suggestions while typing
+  function suggestHtml(q) {
+    q = key(q);
+    if (!q || /[,;\n]/.test(q)) return '';
+    const list = buyAgainList().filter(([k]) => k.startsWith(q) || k.includes(` ${q}`)).sort((a, b) => b[1].n - a[1].n).slice(0, 6);
+    return list.map(([k, h]) =>
+      `<button type="button" class="chip" data-shop="sugg" data-key="${esc(k)}">${(SECTIONS[h.cat] || SECTIONS.Other)[0]} ${esc(h.name)}</button>`).join('');
+  }
+
+  function buyAgainButton() {
+    const n = buyAgainList().length;
+    return n ? `<button type="button" class="btn block buy-again-btn" data-shop="buy-open" aria-haspopup="dialog">🔁 Buy again · ${n} <span class="caret">▾</span></button>` : '';
+  }
+
+  // Tick several past items and add them in one go
+  function openBuyAgain() {
+    const list = buyAgainList();
+    if (!list.length) { cfg.onMessage('Nothing to buy again yet'); return; }
+    const sectionOfKey = h => (SECTIONS[h.cat] ? h.cat : guess(h.name) || 'Other');
+    const groups = doc.order.map(sec => [sec, list.filter(([, h]) => sectionOfKey(h) === sec)
+      .sort((x, y) => y[1].n - x[1].n || x[1].name.localeCompare(y[1].name))]).filter(([, l]) => l.length);
+    sheet(`<form class="sheet buy-sheet" data-buy-form>
+      <h2>🔁 Buy again</h2>
+      <input type="search" data-buy-search placeholder="Search ${list.length} items…" autocomplete="off" aria-label="Search">
+      <div class="buy-tools"><button type="button" class="link" data-shop="buy-all">Select all</button>
+        <button type="button" class="link" data-shop="buy-none">Clear</button></div>
+      <div class="buy-list">${groups.map(([sec, l]) => `<div class="buy-group">
+        <h3 class="sec">${SECTIONS[sec][0]} ${SECTIONS[sec][1]}</h3>
+        ${l.map(([k, h]) => `<label class="buy-row" data-name="${esc(k)}">
+          <input type="checkbox" name="pick" value="${esc(k)}">
+          <span class="grow"><span class="row-title">${esc(h.name)}</span>
+            <small class="meta">${[h.n > 1 ? `added ${h.n}×` : '', h.store ? `🏬 ${esc(h.store)}` : ''].filter(Boolean).join(' · ')}</small></span>
+          <button type="button" class="icon-btn" data-shop="forget" data-key="${esc(k)}" aria-label="Remove ${esc(h.name)} from Buy again">✕</button>
+        </label>`).join('')}</div>`).join('')}</div>
+      <div class="btns end buy-foot"><button type="button" class="btn" data-shop="close">Cancel</button>
+        <button class="btn primary" data-buy-submit disabled>Add selected</button></div>
+    </form>`);
+  }
+
+  function updateBuyCount() {
+    const f = dlg && dlg.querySelector('[data-buy-form]');
+    if (!f) return;
+    const n = f.querySelectorAll('[name=pick]:checked').length, btn = f.querySelector('[data-buy-submit]');
+    btn.disabled = !n;
+    btn.textContent = n ? `Add ${n} item${n === 1 ? '' : 's'}` : 'Add selected';
+  }
+
 
   function row(i, big) {
     const meta = [i.note && `📝 ${esc(i.note)}`, i.store && !ui.store && `🏬 ${esc(i.store)}`, isStaple(i) && '🔁 staple',
@@ -326,7 +364,8 @@ const Shop = (() => {
   function addForm(compact) {
     return `<form class="card add" data-shop-form>
       <input name="text" data-shop-add placeholder="Add items… e.g. milk, eggs, rice 5kg" autocomplete="off" enterkeyhint="done" aria-label="Add items" maxlength="400">
-      <div class="chips sugg" id="shopSugg">${suggestHtml('')}</div>
+      <div class="chips sugg" id="shopSugg"></div>
+      ${compact ? '' : buyAgainButton()}
       ${compact ? '' : `<div class="add-row nowrap">
         <select name="cat" aria-label="Section"><option value="auto">✨ Auto</option>${Object.entries(SECTIONS).map(([k, [e, l]]) => `<option value="${k}">${e} ${l}</option>`).join('')}</select>
         <select name="store" aria-label="Store"><option value="auto">🏬 Usual</option><option value="">Any store</option>${doc.stores.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('')}</select>
@@ -478,16 +517,20 @@ const Shop = (() => {
         if (input) { input.value = ''; input.focus(); }
         break;
       }
-      case 'buy-edit': {
-        editBuy = !editBuy;
-        const box = document.getElementById('shopSugg');
-        if (box) box.innerHTML = suggestHtml('');
+      case 'buy-open': openBuyAgain(); break;
+      case 'buy-all': case 'buy-none':
+        dlg.querySelectorAll('.buy-row:not([hidden]) [name=pick]').forEach(c => { c.checked = shop === 'buy-all'; });
+        updateBuyCount();
         break;
-      }
       case 'forget': {
+        e.preventDefault();   // don't tick the row
         const k = b.dataset.key, h = doc.history[k];
         if (!h) break;
         op({ op: 'forget', name: k }, () => { delete doc.history[k]; });
+        const row = b.closest('.buy-row'), group = row && row.closest('.buy-group');
+        if (row) row.remove();
+        if (group && !group.querySelector('.buy-row')) group.remove();
+        updateBuyCount();
         cfg.onMessage(`Removed ${h.name} from Buy again`);
         break;
       }
@@ -592,6 +635,22 @@ const Shop = (() => {
       if (ui.store && !stores.includes(ui.store)) { ui.store = ''; saveUI(); }
       op({ op: 'settings', stores, order: draftOrder }, () => { doc.stores = stores; doc.order = draftOrder.slice(); });
     }
+  });
+
+  // Buy again: count, search, add
+  document.addEventListener('change', e => { if (e.target.matches && e.target.matches('[data-buy-form] [name=pick]')) updateBuyCount(); });
+  document.addEventListener('input', e => {
+    if (!e.target.matches || !e.target.matches('[data-buy-search]')) return;
+    const q = key(e.target.value);
+    dlg.querySelectorAll('.buy-row').forEach(r => { r.hidden = !!q && !r.dataset.name.includes(q); });
+    dlg.querySelectorAll('.buy-group').forEach(g => { g.hidden = !g.querySelector('.buy-row:not([hidden])'); });
+  });
+  document.addEventListener('submit', e => {
+    if (!e.target.matches || !e.target.matches('[data-buy-form]')) return;
+    e.preventDefault();
+    const picks = [...e.target.querySelectorAll('[name=pick]:checked')].map(c => doc.history[c.value]).filter(Boolean);
+    closeSheet();
+    if (picks.length) addEntries(picks.map(h => ({ name: h.name, qty: '', cat: SECTIONS[h.cat] ? h.cat : 'Other', store: h.store || '' })));
   });
 
   // suggestions as you type
