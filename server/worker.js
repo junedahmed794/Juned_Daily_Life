@@ -19,7 +19,7 @@ const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const LIST_CODE = /^[A-Za-z0-9_-]{20,64}$/;
 const SECTIONS = ['Produce', 'Dairy', 'Meat', 'Bakery', 'Frozen', 'Pantry', 'Snacks', 'Drinks', 'Household', 'Pharmacy', 'Other'];
 const DEFAULT_STORES = [];
-const MAX_ITEMS = 300, MAX_HISTORY = 300, MAX_STAPLES = 50;
+const MAX_ITEMS = 300, MAX_HISTORY = 300, MAX_STAPLES = 50, MAX_CHORES = 200;
 
 const te = new TextEncoder();
 const b64u = {
@@ -185,6 +185,7 @@ function normalizeList(list) {
   list.order = Array.isArray(list.order) ? list.order.filter(s => SECTIONS.includes(s)) : [];
   SECTIONS.forEach(s => { if (!list.order.includes(s)) list.order.push(s); });
   list.trips = Array.isArray(list.trips) ? list.trips : [];
+  list.chores = Array.isArray(list.chores) ? list.chores : [];
   list.shopping = list.shopping || null;
   list.currency = /^[A-Z]{3}$/.test(list.currency || '') ? list.currency : 'USD';
   return list;
@@ -230,6 +231,16 @@ function applyStaples(list) {
     changed = true;
   }
   return changed;
+}
+
+// Shared chores (same secret link as the shopping list)
+function cleanChore(x, by) {
+  const title = cleanText(x && x.title, 100);
+  if (!title) return null;
+  return {
+    id: rid(), title, who: cleanText(x.who, 30), due: DATE.test(x.due || '') ? x.due : '',
+    done: false, by: cleanText(by, 30), doneBy: '', at: Date.now(),
+  };
 }
 
 function applyListOp(list, b) {
@@ -326,6 +337,40 @@ function applyListOp(list, b) {
         tag: 'shop-done',
       } };
     }
+    case 'choreAdd': {
+      if (list.chores.length >= MAX_CHORES) return null;
+      const c = cleanChore(b.chore, by);
+      if (!c) return null;
+      list.chores.push(c);
+      return { notify: {
+        title: `\u{1f3e0} New chore${c.who ? ` for ${c.who}` : ''}`,
+        body: `${c.title}${c.due ? ` - due ${c.due}` : ''}${by ? ` (from ${by})` : ''}`, tag: `chore-${c.id}`,
+      } };
+    }
+    case 'choreToggle': {
+      const c = list.chores.find(x => x.id === b.id);
+      if (!c) return {};
+      c.done = !c.done; c.doneBy = c.done ? by : ''; c.doneAt = c.done ? Date.now() : 0;
+      return c.done ? { notify: { title: `\u{2705} ${by || 'Someone'} did a chore`, body: c.title, tag: `chore-${c.id}` } } : {};
+    }
+    case 'choreUpdate': {
+      const c = list.chores.find(x => x.id === b.id), f = b.fields || {};
+      if (!c) return null;
+      if ('title' in f && cleanText(f.title, 100)) c.title = cleanText(f.title, 100);
+      if ('who' in f) c.who = cleanText(f.who, 30);
+      if ('due' in f) c.due = DATE.test(f.due || '') ? f.due : '';
+      return {};
+    }
+    case 'choreRemove': list.chores = list.chores.filter(x => x.id !== b.id); return {};
+    case 'choreClear': list.chores = list.chores.filter(x => !x.done); return {};
+    case 'choreRestore':
+      for (const x of (Array.isArray(b.chores) ? b.chores : []).slice(0, MAX_CHORES)) {
+        if (!list.chores.find(c => c.id === x.id)) {
+          const c = cleanChore(x, x.by);
+          if (c) { c.id = cleanText(x.id, 20) || c.id; c.done = !!x.done; c.doneBy = cleanText(x.doneBy, 30); list.chores.push(c); }
+        }
+      }
+      return {};
     default: return null;
   }
 }
@@ -381,6 +426,7 @@ export default {
       if (!ALLOWED_ORIGINS.includes(origin)) return json({ error: 'forbidden' }, 403);
 
       const body = await req.json();
+
 
       if (path === '/list') {
         if (!LIST_CODE.test(body.code || '')) return json({ error: 'bad code' }, 400);

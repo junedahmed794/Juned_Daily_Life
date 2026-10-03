@@ -31,12 +31,12 @@ const Shop = (() => {
 
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const key = name => String(name || '').trim().toLowerCase();
-  const blankDoc = () => ({ items: [], history: {}, staples: [], stores: [], order: Object.keys(SECTIONS), trips: [], shopping: null, currency: '' });
+  const blankDoc = () => ({ items: [], history: {}, staples: [], stores: [], order: Object.keys(SECTIONS), trips: [], shopping: null, currency: '', chores: [] });
 
   const cfg = { code: '', name: '', device: '', currency: '', owner: false, onChange: () => {}, onMessage: () => {}, onLogMoney: null };
   let editBuy = false;   // "Buy again" chips show ✕ to remove them
   let doc = blankDoc(), status = 'loading', pollTimer = null, busy = 0, wakeLock = null, refocus = false, dlg = null, draftOrder = [];
-  let ui = { mode: 'list', store: '' };
+  let ui = { mode: 'list', store: '', view: 'shop' };
 
   // ---------- helpers ----------
   function guess(name) {
@@ -97,7 +97,7 @@ const Shop = (() => {
   function init(options) {
     Object.assign(cfg, options);
     try { doc = normalize(JSON.parse(lsGet(cacheKey()) || 'null')); } catch { doc = blankDoc(); }
-    try { ui = { mode: 'list', store: '', ...JSON.parse(lsGet(uiKey()) || '{}') }; } catch { ui = { mode: 'list', store: '' }; }
+    try { ui = { mode: 'list', store: '', view: 'shop', ...JSON.parse(lsGet(uiKey()) || '{}') }; } catch { ui = { mode: 'list', store: '', view: 'shop' }; }
     status = doc.items.length ? 'cached' : 'loading';
     if (ui.mode === 'shopping') keepAwake(true);
   }
@@ -191,6 +191,76 @@ const Shop = (() => {
     clearInterval(pollTimer); pollTimer = null; start();
     cfg.onChange();
     window.scrollTo(0, 0);
+  }
+
+  // ---------- chores ----------
+  // everyone who uses the list (from items, chores and trips)
+  function people() {
+    const names = new Set([cfg.name]);
+    doc.items.forEach(i => names.add(i.by));
+    doc.chores.forEach(c => { names.add(c.by); names.add(c.who); names.add(c.doneBy); });
+    doc.trips.forEach(t => names.add(t.by));
+    names.delete(''); names.delete('Staple'); names.delete(undefined);
+    return [...names];
+  }
+  const openChores = () => doc.chores.filter(c => !c.done);
+  const choresForMe = () => openChores().filter(c => !c.who || c.who === cfg.name).length;
+
+  function choreRow(c) {
+    const k = new Date(); const t = `${k.getFullYear()}-${String(k.getMonth() + 1).padStart(2, '0')}-${String(k.getDate()).padStart(2, '0')}`;
+    const nice = d => new Date(`${d}T12:00`).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+    const due = c.due ? (c.due < t && !c.done ? `<span class="overdue">Overdue · ${esc(nice(c.due))}</span>` : c.due === t ? 'Due today' : `Due ${esc(nice(c.due))}`) : '';
+    const meta = [c.done ? `✓ ${esc(c.doneBy || '')}` : '', due, c.by && c.by !== cfg.name ? `from ${esc(c.by)}` : ''].filter(Boolean).join(' · ');
+    return `<li class="row srow ${c.done ? 'done' : ''}">
+      <button class="check ${c.done ? 'on' : ''}" data-shop="chore-toggle" data-id="${esc(c.id)}" aria-label="${c.done ? 'Not done' : 'Done'}: ${esc(c.title)}"></button>
+      <div class="grow tap" data-shop="chore-edit" data-id="${esc(c.id)}"><div class="row-title">${esc(c.title)}</div>${meta ? `<div class="meta">${meta}</div>` : ''}</div>
+    </li>`;
+  }
+
+  function choresHtml() {
+    const open = openChores().sort((a, b) => (a.due || '9999').localeCompare(b.due || '9999') || a.at - b.at);
+    const done = doc.chores.filter(c => c.done).sort((a, b) => (b.doneAt || 0) - (a.doneAt || 0)).slice(0, 10);
+    const groups = [['🙋 For you', open.filter(c => c.who === cfg.name)],
+      ...people().filter(n => n !== cfg.name).map(n => [`👤 For ${esc(n)}`, open.filter(c => c.who === n)]),
+      ['👥 Anyone', open.filter(c => !c.who)]].filter(([, l]) => l.length);
+    return `<form class="card add" data-chore-form>
+        <input name="title" placeholder="Add a chore… e.g. Pay electricity bill" autocomplete="off" maxlength="100" aria-label="New chore">
+        <div class="add-row nowrap">
+          <select name="who" aria-label="For"><option value="">👥 Anyone</option>${people().map(n => `<option value="${esc(n)}">${n === cfg.name ? '🙋 Me' : `👤 ${esc(n)}`}</option>`).join('')}</select>
+          <input type="date" name="due" aria-label="Due date (optional)">
+        </div>
+        <button class="btn primary block" style="margin-top:8px">Add chore</button>
+      </form>
+      ${groups.map(([title, list]) => `<h2 class="sec">${title} · ${list.length}</h2><div class="card"><ul class="list">${list.map(choreRow).join('')}</ul></div>`).join('')}
+      ${!open.length ? '<p class="empty center">No chores — all done 🎉</p>' : ''}
+      ${done.length ? `<h2 class="sec">✓ Done</h2><div class="card"><ul class="list">${done.map(choreRow).join('')}</ul>
+        <button type="button" class="link danger" data-shop="chore-clear">Clear done chores</button></div>` : ''}
+      <p class="meta hint center">Everyone with the list link sees these. They get a 🔔 when you add or finish one.</p>`;
+  }
+
+  function viewToggle() {
+    const n = doc.items.filter(i => !i.done).length, c = openChores().length;
+    return `<div class="subtabs two-tabs" role="tablist">
+      <button type="button" role="tab" class="${ui.view !== 'chores' ? 'on' : ''}" data-shop="view" data-v="shop">🛒 Shopping${n ? ` · ${n}` : ''}</button>
+      <button type="button" role="tab" class="${ui.view === 'chores' ? 'on' : ''}" data-shop="view" data-v="chores">🏠 Chores${c ? ` · ${c}` : ''}</button>
+    </div>`;
+  }
+
+  function openChoreEdit(id) {
+    const c = doc.chores.find(x => x.id === id);
+    if (!c) return;
+    sheet(`<form class="sheet" data-chore-edit="${esc(id)}">
+      <h2>Edit chore</h2>
+      <label class="lbl">Chore<input name="title" value="${esc(c.title)}" maxlength="100" required></label>
+      <div class="two">
+        <label class="lbl">For<select name="who">${options([['', '👥 Anyone'], ...people().map(n => [n, n === cfg.name ? '🙋 Me' : n])], c.who)}</select></label>
+        <label class="lbl">Due<input type="date" name="due" value="${esc(c.due)}"></label>
+      </div>
+      <div class="btns spread" style="margin-top:18px">
+        <button type="button" class="btn danger" data-shop="chore-delete" data-id="${esc(id)}">Delete</button>
+        <span class="btns"><button type="button" class="btn" data-shop="close">Cancel</button><button class="btn primary">Save</button></span>
+      </div>
+    </form>`);
   }
 
   // ---------- rendering ----------
@@ -309,21 +379,22 @@ const Shop = (() => {
 
   function html() {
     const a = document.activeElement;
-    refocus = !!(a && a.matches && a.matches('[data-shop-add]'));
+    refocus = !!(a && a.matches && a.matches('[data-shop-add], [data-chore-form] [name=title]'));
     if (!PUSH_SERVER) return '<p class="empty center">The shopping list needs the reminder server — it isn’t connected yet.</p>';
-    return ui.mode === 'shopping' ? shoppingHtml() : listHtml();
+    if (ui.mode === 'shopping') return shoppingHtml();
+    return viewToggle() + (ui.view === 'chores' ? choresHtml() : listHtml());
   }
 
   // call after the HTML is on the page
   function mounted() {
-    if (refocus) { const i = document.querySelector('[data-shop-add]'); if (i) i.focus(); }
+    if (refocus) { const i = document.querySelector('[data-shop-add], [data-chore-form] [name=title]'); if (i) i.focus(); }
   }
 
   // true while someone is typing or choosing (so a refresh doesn't wipe it)
   function isTyping() {
     const a = document.activeElement;
     if (!a || !a.closest || a.closest('dialog')) return false;
-    if (!a.closest('[data-shop-form], .srow')) return false;
+    if (!a.closest('[data-shop-form], [data-chore-form], .srow')) return false;
     return a.tagName === 'SELECT' || !!(a.value || '').length;
   }
 
@@ -438,6 +509,29 @@ const Shop = (() => {
         break;
       }
       case 'close': closeSheet(); break;
+      case 'view': ui.view = b.dataset.v; saveUI(); cfg.onChange(); break;
+      case 'chore-toggle': {
+        const c = doc.chores.find(x => x.id === id || x.id === b.dataset.id);
+        const cid = b.dataset.id;
+        op({ op: 'choreToggle', id: cid }, () => { const x = doc.chores.find(y => y.id === cid); if (x) { x.done = !x.done; x.doneBy = x.done ? cfg.name : ''; x.doneAt = Date.now(); } });
+        if (c && !c.done) cfg.onMessage(`✅ ${c.title} — done`);
+        break;
+      }
+      case 'chore-edit': openChoreEdit(b.dataset.id); break;
+      case 'chore-delete': {
+        const c = doc.chores.find(x => x.id === b.dataset.id);
+        closeSheet();
+        if (!c) break;
+        op({ op: 'choreRemove', id: c.id }, () => { doc.chores = doc.chores.filter(x => x.id !== c.id); });
+        cfg.onMessage(`Removed ${c.title}`, () => op({ op: 'choreRestore', chores: [c] }, () => { doc.chores.push(c); }));
+        break;
+      }
+      case 'chore-clear': {
+        const gone = doc.chores.filter(x => x.done);
+        op({ op: 'choreClear' }, () => { doc.chores = doc.chores.filter(x => !x.done); });
+        cfg.onMessage('Cleared done chores', () => op({ op: 'choreRestore', chores: gone }, () => { doc.chores.push(...gone); }));
+        break;
+      }
     }
   });
 
@@ -476,6 +570,21 @@ const Shop = (() => {
       op({ op: 'finish', total, totalText: total ? money(total) : '', store }, () => { doc.items = doc.items.filter(i => !i.done); });
       if (log && total && cfg.onLogMoney) cfg.onLogMoney(total, store, count);
       cfg.onMessage(`Trip saved${total ? ` · ${money(total)}` : ''}${log && total ? ' · logged to Expense' : ''} ✅`);
+    } else if (f.matches('[data-chore-form]')) {
+      e.preventDefault();
+      const title = f.title.value.trim();
+      if (!title) return;
+      const chore = { title, who: f.who.value, due: f.due.value };
+      f.title.value = '';
+      op({ op: 'choreAdd', chore }, () => { doc.chores.push({ id: `tmp-${Date.now()}`, done: false, by: cfg.name, at: Date.now(), ...chore }); })
+        .then(ok => { if (ok) cfg.onMessage(`🏠 Added: ${title}${chore.who && chore.who !== cfg.name ? ` (for ${chore.who})` : ''}`); });
+      const input = document.querySelector('[data-chore-form] [name=title]');
+      if (input) input.focus();
+    } else if (f.matches('[data-chore-edit]')) {
+      e.preventDefault();
+      const id = f.dataset.choreEdit, fields = { title: f.title.value.trim(), who: f.who.value, due: f.due.value };
+      closeSheet();
+      op({ op: 'choreUpdate', id, fields }, () => { const c = doc.chores.find(x => x.id === id); if (c) Object.assign(c, fields); });
     } else if (f.matches('[data-shop-settings]')) {
       e.preventDefault();
       const stores = f.stores.value.split('\n').map(s => s.trim()).filter(Boolean);
@@ -558,6 +667,8 @@ const Shop = (() => {
     get items() { return doc.items; },
     get doc() { return doc; },
     get mode() { return ui.mode; },
+    choresForMe,
+    showChores() { ui.view = 'chores'; ui.mode = 'list'; saveUI(); },
     _test: { parseItems, guess, stepQty },
   };
 })();

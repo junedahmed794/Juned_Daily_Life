@@ -1,7 +1,7 @@
 // Network-first service worker: always gets the latest version when online,
 // falls back to the cached copy when offline.
-const CACHE = 'juned-daily-v20';
-const ASSETS = ['./', 'index.html', 'styles.css', 'app.js', 'theme.js', 'config.js', 'shop.js', 'xlsx.js', 'privacy.js', 'celebrate.js', 'quickadd.js', 'insights.js', 'manifest.json', 'icon.svg', 'icon-512.png'];
+const CACHE = 'juned-daily-v21';
+const ASSETS = ['./', 'index.html', 'styles.css', 'app.js', 'theme.js', 'config.js', 'shop.js', 'xlsx.js', 'privacy.js', 'celebrate.js', 'quickadd.js', 'insights.js', 'bills.js', 'review.js', 'manifest.json', 'icon.svg', 'icon-512.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)));

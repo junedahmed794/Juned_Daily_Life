@@ -407,7 +407,7 @@ details.card[open] > summary { margin-bottom: 4px; }
   box-shadow: 0 6px 18px rgba(0, 0, 0, .22);
 }
 .fab:active { transform: scale(.94); }
-body[data-tab="shop"] .fab, body[data-tab="insights"] .fab { display: none; }
+body[data-tab="shop"] .fab, body[data-tab="insights"] .fab, body[data-tab="review"] .fab { display: none; }
 main { padding-bottom: 84px; }
 .quick-sheet [name=q] { font-size: 17px; min-height: 48px; margin-top: 10px; }
 .qtypes { margin-top: 10px; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
@@ -525,3 +525,32 @@ input, select, textarea { font-size: max(16px, 1em); }                 /* iPhone
 .chev { color: var(--muted); font-size: 26px; line-height: 1; }
 .toggle input { flex: none; }
 .settings .toggle input { width: 24px !important; height: 24px !important; }
+
+/* ---------- budgets & bills ---------- */
+.budgets { display: grid; gap: 14px; margin-top: 12px; }
+.budget-top { display: flex; justify-content: space-between; gap: 8px; font-weight: 600; margin-bottom: 6px; }
+.budget .bar { height: 10px; background: var(--bg); border-radius: 999px; overflow: hidden; border: 1px solid var(--line); }
+.budget .bar i { display: block; height: 100%; border-radius: 999px; background: var(--good); transition: width .4s; }
+.budget.warn .bar i { background: #f59e0b; }
+.budget.over .bar i { background: var(--danger); }
+.budget.over .meta { color: var(--danger); }
+.budget .meta { margin-top: 4px; }
+.budget-inputs { display: grid; grid-template-columns: 1fr 1fr; gap: 0 10px; }
+.btn.small { min-height: 36px; padding: 6px 12px; font-size: 14px; }
+.due-soon { color: #d97706; font-weight: 600; }
+.bill-soon { margin-top: 4px; }
+.chores-link { display: block; margin: -2px 0 6px; }
+
+/* ---------- shopping / chores switch ---------- */
+.subtabs.two-tabs { grid-template-columns: 1fr 1fr; }
+
+/* ---------- weekly review ---------- */
+.review-head .month-nav { margin-bottom: 6px; }
+.review-msg { margin: 8px 0 0; font-size: 16px; text-align: center; }
+.stat .delta { display: block; font-size: 12px; font-weight: 700; margin-top: 2px; }
+ul.plain { list-style: none; margin: 0; padding: 0; }
+ul.plain li { padding: 9px 0; border-bottom: 1px solid var(--line); }
+ul.plain li:last-child { border-bottom: 0; }
+.center-btns { justify-content: center; margin: 16px 0 8px; }
+[data-chore-form] .add-row select { flex: 0 0 44%; width: 44%; min-width: 0; }
+[data-chore-form] .add-row input[type=date] { flex: 1 1 0; width: auto; min-width: 0; }

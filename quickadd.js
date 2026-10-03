@@ -221,7 +221,7 @@ function commitQuick(p) {
     case 'expense': case 'income':
       state.expenses.push({ id: uid(), type: p.type === 'income' ? 'in' : 'out', amount: p.amount, category: p.category, note: p.note, date: p.date, created: Date.now() });
       save();
-      return `${p.type === 'income' ? '💵 Income' : '💸 Expense'} of ${money(p.amount)} logged`;
+      return `${p.type === 'income' ? '💵 Income' : '💸 Expense'} of ${money(p.amount)} logged${p.type === 'expense' ? budgetNote(p.category, p.date) : ''}`;
     case 'journal': {
       const k = today(), e = state.journal[k] || {};
       if (p.mood) setJournal(k, 'mood', p.mood);

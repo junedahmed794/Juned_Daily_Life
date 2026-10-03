@@ -26,7 +26,7 @@ const CATS = {
   in: ['Salary', 'Side income', 'Gift', 'Other'],
 };
 const CURRENCIES = ['USD', 'EUR', 'GBP', 'INR', 'PKR', 'BDT', 'AED', 'SAR', 'CAD', 'AUD', 'JPY', 'NGN'];
-const TABS = { today: 'Today', tasks: 'Tasks', habits: 'Habits', money: 'Expense', office: 'Office', shop: 'Shop', journal: 'Journal', insights: 'Insights' };
+const TABS = { today: 'Today', tasks: 'Tasks', habits: 'Habits', money: 'Expense', office: 'Office', shop: 'Shop', journal: 'Journal', insights: 'Insights', review: 'Weekly review' };
 
 function fmtDate(k) {
   const t = today();
@@ -52,7 +52,7 @@ function guessCurrency() {
 
 // ---------- state ----------
 const defaults = () => ({
-  tasks: [], habits: [], expenses: [], journal: {},
+  tasks: [], habits: [], expenses: [], journal: {}, budgets: {}, bills: [],
   office: { shifts: [], daysOff: [], tasks: [], meetings: [] },
   settings: {
     currency: guessCurrency(), workHours: 8, name: '', hiddenTabs: ['journal'], trackIncome: false,
@@ -614,9 +614,10 @@ views.today = () => {
   ${(() => {
     const ws = pendingReportWeek();
     return ws ? `<section class="card report">
-      <h2>📊 Your weekly report is ready</h2>
-      <p class="meta">${fmtRange(ws, addDays(ws, 6))} · Excel file with your summary and weekly tracker</p>
-      <div class="btns"><button class="btn primary" data-action="report" data-week="${ws}">Export to Excel</button>
+      <h2>📅 Your week in review is ready</h2>
+      <p class="meta">${fmtRange(ws, addDays(ws, 6))} · highlights, comparisons and what’s coming up</p>
+      <div class="btns"><button class="btn primary" data-action="open-review" data-week="${ws}">See your week</button>
+      <button class="btn" data-action="report" data-week="${ws}">📊 Excel</button>
       <button class="btn" data-action="report-skip" data-week="${ws}">Not now</button></div>
     </section>` : '';
   })()}
@@ -637,6 +638,7 @@ views.today = () => {
 
   <section class="card">
     <div class="card-head"><h2>Tasks</h2><button class="link" data-action="go" data-tab="tasks">All tasks →</button></div>
+    ${PUSH_SERVER && tabShown('shop') && Shop.choresForMe() ? `<button class="link chores-link" data-action="open-chores">🏠 ${Shop.choresForMe()} chore${Shop.choresForMe() === 1 ? '' : 's'} for you →</button>` : ''}
     <ul class="list">${tasks.length ? tasks.map(t => taskRow(t)).join('') : '<li class="empty">No tasks for today.</li>'}</ul>
     <form class="quick" data-form="task">
       <input name="title" placeholder="Quick add a task…" required autocomplete="off" aria-label="New task">
@@ -661,6 +663,8 @@ views.today = () => {
   <section class="card">
     <div class="card-head"><h2>Expenses</h2><button class="link" data-action="go" data-tab="money">Details →</button></div>
     <div class="meta">This month: <strong>${Privacy.pm(spentMonth)}</strong> spent</div>
+    ${state.bills.filter(b => b.next <= addDays(k, 3)).sort((a, b) => a.next.localeCompare(b.next)).map(b =>
+      `<div class="meta bill-soon">🧾 <b>${esc(b.name)}</b> — ${dueLabel(b.next)}</div>`).join('')}
     <form class="quick" data-form="expense">
       <input type="hidden" name="type" value="out">
       <input name="amount" inputmode="decimal" placeholder="Amount" required aria-label="Amount" style="flex:1">
@@ -771,6 +775,9 @@ views.money = () => {
       <div class="bar-row"><span>${esc(c)}</span><div class="bar"><i style="width:${(v / max * 100).toFixed(1)}%"></i></div>
       <span class="amt">${money(v)}</span></div>`).join('')}</div>` : ''}
   </div>
+
+  ${budgetsCard(m)}
+  ${billsCard()}
 
   ${items.length ? `<div class="card">${Object.entries(groups).map(([d, list]) => `
     <div class="day-label">${fmtDate(d)}</div>
@@ -885,6 +892,7 @@ async function resetShopLink() {
 views.shop = () => Shop.html();
 
 views.insights = () => insightsView();
+views.review = () => reviewView();
 
 // Tabs that can be hidden from the bottom bar (Today always stays)
 const OPTIONAL_TABS = ['tasks', 'habits', 'money', 'office', 'shop', 'journal'];
@@ -975,7 +983,7 @@ function reminderList() {
     start: createdKey(t),
     // already ticked off → no reminder that day
     skip: isRepeat(t) ? [addDays(k, -1), k, addDays(k, 1)].filter(d => t.doneDates && t.doneDates[d]) : [],
-  })).concat(nudgeList());
+  })).concat(nudgeList(), billReminders());
 }
 
 // ---------- daily nudges (morning brief, habit reminder, evening check-in) ----------
@@ -1177,6 +1185,7 @@ function settingsBody(page) {
       <span class="menu-icon">${icon}</span><span class="grow"><b>${title}</b><small>${sub}</small></span><span class="chev">›</span></button>`;
   return `
     <div class="menu-list">
+      ${row('📅', 'Weekly review', 'Your week at a glance, compared with the last', 'data-action="menu-go" data-tab="review"')}
       ${row('📊', 'Insights', 'Charts of your habits, mood, spending and work', 'data-action="menu-go" data-tab="insights"')}
     </div>
     <span class="lbl">Settings</span>
@@ -1256,6 +1265,8 @@ document.addEventListener('click', e => {
       break;
     }
     case 'quick': openQuick(); break;
+    case 'open-review': reviewWeek = b.dataset.week; go('review'); break;
+    case 'open-chores': Shop.showChores(); go('shop'); break;
     case 'toggle-tab': {
       const t = b.dataset.tab, hidden = new Set(state.settings.hiddenTabs || []);
       if (hidden.has(t)) hidden.delete(t); else hidden.add(t);
@@ -1395,7 +1406,7 @@ document.addEventListener('submit', e => {
       id: uid(), type, amount, category: d.category || 'Other',
       note: (d.note || '').trim(), date: d.date || today(), created: Date.now(),
     });
-    toast(`${type === 'in' ? 'Income' : 'Expense'} of ${money(amount)} logged`);
+    toast(`${type === 'in' ? 'Income' : 'Expense'} of ${money(amount)} logged${type === 'out' ? budgetNote(d.category || 'Other', d.date || today()) : ''}`);
   } else if (kind === 'shift') {
     if (!d.date || !d.start || !d.end) return;
     const start = atTime(d.date, d.start);
