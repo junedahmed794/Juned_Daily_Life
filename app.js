@@ -101,6 +101,15 @@ let justToggled = null;   // gives the tick that was just tapped a little "pop"
 const firstName = () => String(state.settings.name || '').trim().split(/\s+/)[0];
 const withName = (text, sep = ', ') => (firstName() ? `${text}${sep}${firstName()}` : text);
 
+// When a reminder has a date but no time: 9:00 AM, or the next hour if 9:00 has passed today
+function defaultReminder(date) {
+  const k = today(), h = new Date().getHours();
+  if (date && date > k) return { date, time: '09:00' };
+  if (h < 9) return { date: date || k, time: '09:00' };
+  if (h < 22) return { date: date || k, time: `${pad(h + 1)}:00` };
+  return { date: addDays(k, 1), time: '09:00' };
+}
+
 // ---------- tasks ----------
 const REPEATS = { none: 'One-time', daily: 'Every day', weekdays: 'Weekdays (Mon–Fri)', weekly: 'Every week', monthly: 'Every month' };
 const isRepeat = t => t.repeat in REPEATS && t.repeat !== 'none';
@@ -1379,10 +1388,13 @@ document.addEventListener('submit', e => {
     const title = (d.title || '').trim();
     if (!title) return;
     const repeat = REPEATS[d.repeat] ? d.repeat : 'none';
-    const time = /^\d{2}:\d{2}$/.test(d.time || '') ? d.time : '';
+    let time = /^\d{2}:\d{2}$/.test(d.time || '') ? d.time : '';
     const remind = !!d.remind;
-    if (remind && !time) { toast('Pick a time for the reminder'); return; }
     let due = repeat === 'none' ? (d.due || null) : null;
+    if (remind && !time) {
+      if (repeat === 'none') ({ date: due, time } = defaultReminder(due));
+      else time = '09:00';
+    }
     // a one-time reminder with no date: today if the time is still ahead, otherwise tomorrow
     if (repeat === 'none' && remind && !due) due = atTime(today(), time) > Date.now() ? today() : addDays(today(), 1);
     const base = d.due || today();
@@ -1443,6 +1455,16 @@ document.addEventListener('submit', e => {
   // keep the keyboard open for quick consecutive entries
   const again = $(`form[data-form="${kind}"] input:not([type=hidden]):not([type=radio])`);
   if (again) again.focus();
+});
+
+// Task form: picking a time or a date ticks 🔔 Remind me (unless you unticked it yourself)
+document.addEventListener('change', e => {
+  const f = e.target.form;
+  if (!f || f.dataset.form !== 'task' || !f.remind) return;
+  if (e.target === f.remind) { f.remind.dataset.userSet = '1'; return; }
+  if ((e.target.name === 'time' || e.target.name === 'due') && !f.remind.dataset.userSet) {
+    f.remind.checked = !!((f.time && f.time.value) || (f.due && f.due.value));
+  }
 });
 
 // Switching Expense/Income swaps the category list

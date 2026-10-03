@@ -156,7 +156,13 @@ function parseQuick(raw, forced = 'auto') {
   const remindAsked = /^remind me (to\s+)?/i.test(text);
   const w = qWhen(text.replace(/^remind me (to\s+)?/i, ''));
   if (!w.title) return { type: 'task', error: 'What’s the task?' };
-  return { type: 'task', ...w, remind: !!w.time || remindAsked };
+  // a time or a date means a reminder (9:00 AM, or the next hour today, when no time was said)
+  const remind = !!w.time || !!w.date || remindAsked;
+  if (remind && !w.time) {
+    if (w.repeat === 'none') Object.assign(w, defaultReminder(w.date));
+    else w.time = '09:00';
+  }
+  return { type: 'task', ...w, remind };
 }
 
 function quickPreview(p) {
