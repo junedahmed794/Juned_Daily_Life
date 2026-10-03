@@ -20,7 +20,10 @@
 <body>
   <header class="topbar">
     <h1>🛒 Shopping</h1>
-    <button class="icon-btn" id="who" aria-label="Change your name">👤</button>
+    <span>
+      <button class="icon-btn" id="bell" aria-label="Notifications" hidden>🔕</button>
+      <button class="icon-btn" id="who" aria-label="Change your name">👤</button>
+    </span>
   </header>
   <main id="view"></main>
   <div id="toast" role="status" aria-live="polite"></div>
@@ -43,12 +46,18 @@
     const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
 
     let toastTimer;
-    function toast(msg) {
+    function toast(msg, undo) {
       const el = document.getElementById('toast');
-      el.textContent = msg;
+      el.textContent = '';
+      el.append(Object.assign(document.createElement('span'), { textContent: msg }));
+      if (undo) {
+        const b = Object.assign(document.createElement('button'), { type: 'button', textContent: 'Undo' });
+        b.onclick = () => { undo(); el.classList.remove('show'); };
+        el.append(b);
+      }
       el.classList.add('show');
       clearTimeout(toastTimer);
-      toastTimer = setTimeout(() => el.classList.remove('show'), 2500);
+      toastTimer = setTimeout(() => el.classList.remove('show'), undo ? 4500 : 2500);
     }
 
     function render() {
@@ -69,7 +78,44 @@
       if (Shop.isTyping()) return;
       view.innerHTML = Shop.html() + (standalone ? '' :
         '<p class="meta" style="text-align:center;margin-top:18px">Tip: tap <b>Share → Add to Home Screen</b> to keep this list as an app.</p>');
+      Shop.mounted();
     }
+
+    // ---------- notifications (new items, "shopping now", "trip done") ----------
+    const bell = document.getElementById('bell');
+    const canPush = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window && !!PUSH_SERVER;
+    const post = (path, data) => fetch(`${PUSH_SERVER}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+    const keyBytes = k => Uint8Array.from(atob(k.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - (k.length % 4)) % 4)), c => c.charCodeAt(0));
+    const showBell = () => { bell.hidden = false; bell.textContent = get('shop-notify') === '1' ? '🔔' : '🔕'; };
+
+    async function syncPush() {
+      const sub = await (await navigator.serviceWorker.ready).pushManager.getSubscription();
+      if (!sub) return false;
+      const res = await post('/sync', { id: device, subscription: sub.toJSON(), tz: Intl.DateTimeFormat().resolvedOptions().timeZone, reminders: [], lists: [code], app: 'shop' });
+      return res.ok;
+    }
+
+    async function toggleNotify() {
+      if (!canPush()) { toast(standalone ? 'Notifications aren’t supported here' : 'Add this list to your Home Screen first, then open it from there'); return; }
+      if (get('shop-notify') === '1') {
+        try { const sub = await (await navigator.serviceWorker.ready).pushManager.getSubscription(); if (sub) await sub.unsubscribe(); await post('/unsubscribe', { id: device }); } catch { /* ignore */ }
+        set('shop-notify', '0'); showBell(); toast('Notifications off'); return;
+      }
+      const perm = await Notification.requestPermission();   // must run straight from the tap
+      if (perm !== 'granted') { toast('Notifications are blocked — allow them in iPhone Settings → Notifications'); return; }
+      try {
+        const reg = await navigator.serviceWorker.ready;
+        let sub = await reg.pushManager.getSubscription();
+        if (!sub) {
+          const { publicKey } = await (await fetch(`${PUSH_SERVER}/key`)).json();
+          sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(publicKey) });
+        }
+        if (!(await syncPush())) throw new Error('sync');
+        await post('/test', { id: device });
+        set('shop-notify', '1'); showBell(); toast('Notifications on 🔔');
+      } catch { toast('Could not turn on notifications — try again'); }
+    }
+    bell.addEventListener('click', toggleNotify);
 
     function start() {
       render();
@@ -92,6 +138,13 @@
       const n = prompt('Your name (shown next to items you add):', get('shop-name') || '');
       if (n && n.trim()) { set('shop-name', n.trim().slice(0, 30)); start(); }
     });
+
+    if ('serviceWorker' in navigator && PUSH_SERVER) {
+      navigator.serviceWorker.register('sw.js').then(() => {
+        showBell();
+        if (get('shop-notify') === '1') syncPush().catch(() => {});
+      }).catch(() => {});
+    }
 
     start();
   })();

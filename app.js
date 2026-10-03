@@ -813,8 +813,17 @@ function startShop() {
   }
   Shop.init({
     code: state.settings.shopCode, name: state.settings.name || 'Me', device: state.settings.deviceId,
+    currency: state.settings.currency, owner: true,
     onChange: () => { if (ui.tab === 'shop' && !Shop.isTyping() && !$('#sheet').open) render(); },
     onMessage: toast,
+    // "Finish trip" → record the spend in the Money tab
+    onLogMoney: (amount, store, count) => {
+      state.expenses.push({
+        id: uid(), type: 'out', amount, category: 'Groceries', date: today(), created: Date.now(),
+        note: `Shopping trip${store ? ` · ${store}` : ''} (${count} item${count === 1 ? '' : 's'})`,
+      });
+      save();
+    },
   });
 }
 
@@ -831,17 +840,17 @@ async function shareShopLink() {
 
 async function resetShopLink() {
   if (!confirm('Make a new link? The old link will stop showing your list. You’ll need to send the new link again.')) return;
-  const keep = Shop.items.filter(i => !String(i.id).startsWith('tmp-'));
+  const keep = JSON.parse(JSON.stringify(Shop.doc));
   await Shop.wipe();
   state.settings.shopCode = Shop.newCode();
   save();
   startShop();
-  await Shop.importItems(keep);
+  await Shop.importDoc(keep);
   render();
   toast('New link ready — tap Share link to send it');
 }
 
-views.shop = () => PUSH_SERVER ? `
+views.shop = () => PUSH_SERVER && Shop.mode !== 'shopping' ? `
   ${Shop.html()}
   <div class="card share">
     <h2>👩 Shared with your wife</h2>
@@ -863,6 +872,7 @@ function render() {
   });
   if (ui.tab === 'shop') Shop.start(); else Shop.stop();
   $('#view').innerHTML = views[ui.tab]();
+  if (ui.tab === 'shop') Shop.mounted();
 }
 
 function go(tab) {
@@ -941,7 +951,7 @@ async function syncReminders(force = false) {
     const data = {
       id: state.settings.deviceId, subscription: sub.toJSON(),
       tz: Intl.DateTimeFormat().resolvedOptions().timeZone, reminders: reminderList(),
-      lists: state.settings.shopCode ? [state.settings.shopCode] : [],
+      lists: state.settings.shopCode ? [state.settings.shopCode] : [], app: 'main',
     };
     const key = JSON.stringify(data);
     if (!force && key === lastSync) return true;
@@ -1262,7 +1272,7 @@ document.addEventListener('change', e => {
     const sel = t.form.querySelector('select[name=category]');
     if (sel) sel.innerHTML = catOptions(t.value);
   } else if (t.id === 'currency') {
-    state.settings.currency = t.value; save(); render();
+    state.settings.currency = t.value; save(); startShop(); render();
   } else if (t.id === 'myName') {
     state.settings.name = t.value.trim().slice(0, 30) || 'Me'; save(); startShop();
   } else if (t.id === 'workHours') {

@@ -1,6 +1,6 @@
 // Network-first service worker: always gets the latest version when online,
 // falls back to the cached copy when offline.
-const CACHE = 'juned-daily-v6';
+const CACHE = 'juned-daily-v7';
 const ASSETS = ['./', 'index.html', 'styles.css', 'app.js', 'config.js', 'shop.js', 'xlsx.js', 'manifest.json', 'icon.svg', 'icon-512.png'];
 
 self.addEventListener('install', e => {
@@ -30,18 +30,21 @@ self.addEventListener('fetch', e => {
 self.addEventListener('push', e => {
   let data = {};
   try { data = e.data ? e.data.json() : {}; } catch { data = { body: e.data && e.data.text() }; }
+  const shop = data.url === 'shop.html';
   e.waitUntil(self.registration.showNotification(data.title || 'Juned Daily', {
     body: data.body || '',
     tag: data.tag,
-    icon: 'icon-512.png',
-    badge: 'icon-512.png',
+    icon: shop ? 'shop-icon.png' : 'icon-512.png',
+    badge: shop ? 'shop-icon.png' : 'icon-512.png',
+    data: { url: data.url || './' },
   }));
 });
 
 self.addEventListener('notificationclick', e => {
   e.notification.close();
+  const url = new URL((e.notification.data && e.notification.data.url) || './', self.registration.scope).href;
   e.waitUntil(clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
     const open = list.find(c => 'focus' in c);
-    return open ? open.focus() : clients.openWindow('./');
+    return open ? open.focus() : clients.openWindow(url);
   }));
 });

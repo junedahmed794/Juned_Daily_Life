@@ -17,8 +17,9 @@ const REPEATS = ['none', 'daily', 'weekdays', 'weekly', 'monthly'];
 const MAX_DEVICES = 10, MAX_REMINDERS = 300;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const LIST_CODE = /^[A-Za-z0-9_-]{20,64}$/;
-const SHOP_CATS = ['Groceries', 'Household', 'Pharmacy', 'Other'];
-const MAX_ITEMS = 300;
+const SECTIONS = ['Produce', 'Dairy', 'Meat', 'Bakery', 'Frozen', 'Pantry', 'Snacks', 'Drinks', 'Household', 'Pharmacy', 'Other'];
+const DEFAULT_STORES = ['Walmart', "Sam's Club", 'Indian store'];
+const MAX_ITEMS = 300, MAX_HISTORY = 300, MAX_STAPLES = 50;
 
 const te = new TextEncoder();
 const b64u = {
@@ -154,49 +155,184 @@ function cleanReminder(r) {
 
 // ---------- shared shopping list ----------
 const rid = () => b64u.enc(crypto.getRandomValues(new Uint8Array(9)));
-const cleanText = (v, n) => String(v || '').trim().slice(0, n);
+const cleanText = (v, n) => String(v == null ? '' : v).trim().slice(0, n);
+const todayUTC = () => new Date().toISOString().slice(0, 10);
+const addDaysUTC = (k, n) => { const [y, m, d] = k.split('-').map(Number); return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10); };
+const cleanPrice = v => { const n = Number(v); return v === null || v === '' || !Number.isFinite(n) || n < 0 || n > 1e6 ? null : Math.round(n * 100) / 100; };
+const keyOf = name => String(name || '').trim().toLowerCase();
 
-function cleanItem(x, by) {
+// Fill in anything an older list is missing
+function normalizeList(list) {
+  list = list || {};
+  list.items = Array.isArray(list.items) ? list.items : [];
+  list.history = list.history && typeof list.history === 'object' ? list.history : {};
+  list.staples = Array.isArray(list.staples) ? list.staples : [];
+  list.stores = Array.isArray(list.stores) ? list.stores : DEFAULT_STORES.slice();
+  list.order = Array.isArray(list.order) ? list.order.filter(s => SECTIONS.includes(s)) : [];
+  SECTIONS.forEach(s => { if (!list.order.includes(s)) list.order.push(s); });
+  list.trips = Array.isArray(list.trips) ? list.trips : [];
+  list.shopping = list.shopping || null;
+  list.currency = /^[A-Z]{3}$/.test(list.currency || '') ? list.currency : 'USD';
+  return list;
+}
+
+function cleanItem(x, by, list, keep = false) {
   const name = cleanText(x && x.name, 80);
   if (!name) return null;
+  const store = cleanText(x.store, 30);
   return {
-    id: cleanText(x.id, 20) || rid(), name, qty: cleanText(x.qty, 20),
-    cat: SHOP_CATS.includes(x.cat) ? x.cat : 'Groceries',
-    done: !!x.done, by: cleanText(x.by || by, 30), at: Number(x.at) || Date.now(),
+    id: (keep && cleanText(x.id, 20)) || rid(),
+    name, qty: cleanText(x.qty, 20), note: cleanText(x.note, 120),
+    cat: SECTIONS.includes(x.cat) ? x.cat : 'Other',
+    store: list.stores.includes(store) ? store : '',
+    price: keep ? cleanPrice(x.price) : null,
+    done: keep ? !!x.done : false,
+    by: cleanText(x.by || by, 30),
+    at: (keep && Number(x.at)) || Date.now(),
   };
+}
+
+// Remember each item's usual section and store (used for suggestions and "Buy again")
+function learn(list, it, count) {
+  const k = keyOf(it.name), h = list.history[k] || { n: 0 };
+  list.history[k] = { name: it.name, cat: it.cat, store: it.store, n: h.n + (count ? 1 : 0), last: todayUTC() };
+  const keys = Object.keys(list.history);
+  if (keys.length > MAX_HISTORY) {
+    keys.sort((a, b) => (list.history[a].last || '').localeCompare(list.history[b].last || '') || list.history[a].n - list.history[b].n)
+      .slice(0, keys.length - MAX_HISTORY).forEach(old => delete list.history[old]);
+  }
+}
+
+// Weekly staples come back on the list when they are due
+function applyStaples(list) {
+  const today = todayUTC();
+  let changed = false;
+  for (const s of list.staples) {
+    if (s.next > today) continue;
+    if (!list.items.some(i => !i.done && keyOf(i.name) === s.key) && list.items.length < MAX_ITEMS) {
+      list.items.push(cleanItem({ ...s, by: 'Staple' }, 'Staple', list));
+    }
+    s.next = addDaysUTC(today, s.every);
+    changed = true;
+  }
+  return changed;
 }
 
 function applyListOp(list, b) {
   const by = cleanText(b.by, 30);
-  const item = list.items.find(i => i.id === b.id);
+  const find = id => list.items.find(i => i.id === id);
   switch (b.op) {
-    case 'add': {
-      const it = cleanItem({ ...b.item, id: '', done: false, at: 0 }, by);
-      if (!it || list.items.length >= MAX_ITEMS) return null;
-      list.items.push(it);
-      return it;
+    case 'add':
+    case 'addMany': {
+      const raw = b.op === 'add' ? [b.item] : (Array.isArray(b.items) ? b.items : []);
+      const added = [];
+      for (const x of raw.slice(0, 50)) {
+        if (list.items.length >= MAX_ITEMS) break;
+        const it = cleanItem(x || {}, by, list);
+        if (!it) continue;
+        const dup = list.items.find(i => !i.done && keyOf(i.name) === keyOf(it.name));
+        if (dup) { if (it.qty && !dup.qty) dup.qty = it.qty; continue; }   // already on the list
+        list.items.push(it);
+        learn(list, it, true);
+        added.push(it);
+      }
+      return { added };
     }
-    case 'toggle': if (item) item.done = !item.done; return item;
-    case 'remove': list.items = list.items.filter(i => i.id !== b.id); return true;
-    case 'clear': list.items = list.items.filter(i => !i.done); return true;
-    case 'wipe': list.items = []; return true;   // old link retired
-    case 'import':   // moving the list to a new link: only into an empty list
-      if (!list.items.length && Array.isArray(b.items)) list.items = b.items.slice(0, MAX_ITEMS).map(x => cleanItem(x, by)).filter(Boolean);
-      return true;
+    case 'toggle': {
+      const i = find(b.id);
+      if (i) i.done = !i.done;
+      return {};
+    }
+    case 'update': {
+      const i = find(b.id), f = b.fields || {};
+      if (!i) return null;
+      if ('name' in f && cleanText(f.name, 80)) i.name = cleanText(f.name, 80);
+      if ('qty' in f) i.qty = cleanText(f.qty, 20);
+      if ('note' in f) i.note = cleanText(f.note, 120);
+      if ('cat' in f && SECTIONS.includes(f.cat)) i.cat = f.cat;
+      if ('store' in f) i.store = list.stores.includes(cleanText(f.store, 30)) ? cleanText(f.store, 30) : '';
+      if ('price' in f) i.price = cleanPrice(f.price);
+      learn(list, i, false);
+      return {};
+    }
+    case 'remove': list.items = list.items.filter(i => i.id !== b.id); return {};
+    case 'restore':   // undo
+      for (const x of (Array.isArray(b.items) ? b.items : []).slice(0, MAX_ITEMS)) {
+        if (!find(x.id) && list.items.length < MAX_ITEMS) { const it = cleanItem(x, by, list, true); if (it) list.items.push(it); }
+      }
+      return {};
+    case 'clear': list.items = list.items.filter(i => !i.done); return {};
+    case 'wipe': list.items = []; list.staples = []; return {};   // old link retired
+    case 'import':   // moving everything to a new link: only into an empty list
+      if (!list.items.length && b.doc) {
+        const d = normalizeList(b.doc);
+        Object.assign(list, { stores: d.stores, order: d.order, history: d.history, staples: d.staples, trips: d.trips, currency: d.currency });
+        list.items = d.items.slice(0, MAX_ITEMS).map(x => cleanItem(x, by, list, true)).filter(Boolean);
+      }
+      return {};
+    case 'settings':
+      if (Array.isArray(b.stores)) list.stores = [...new Set(b.stores.map(s => cleanText(s, 30)).filter(Boolean))].slice(0, 10);
+      if (Array.isArray(b.order)) { list.order = b.order.filter(s => SECTIONS.includes(s)); SECTIONS.forEach(s => { if (!list.order.includes(s)) list.order.push(s); }); }
+      if (/^[A-Z]{3}$/.test(b.currency || '')) list.currency = b.currency;
+      list.items.forEach(i => { if (i.store && !list.stores.includes(i.store)) i.store = ''; });
+      return {};
+    case 'staple': {
+      const k = keyOf(b.item && b.item.name);
+      if (!k) return null;
+      list.staples = list.staples.filter(s => s.key !== k);
+      const every = Number(b.every);
+      if ([7, 14, 30].includes(every)) {
+        const it = cleanItem(b.item, by, list);
+        list.staples.push({ key: k, name: it.name, qty: it.qty, cat: it.cat, store: it.store, note: it.note, every, next: addDaysUTC(todayUTC(), every) });
+        list.staples = list.staples.slice(-MAX_STAPLES);
+      }
+      return {};
+    }
+    case 'shopping': {
+      const store = list.stores.includes(cleanText(b.store, 30)) ? cleanText(b.store, 30) : '';
+      list.shopping = b.on ? { by, store, at: Date.now() } : null;
+      return b.on ? { notify: {
+        title: `\u{1f6d2} ${by || 'Someone'} is shopping now`,
+        body: `${store ? `At ${store} - ` : ''}add anything you need to the list`, tag: 'shop-now',
+      } } : {};
+    }
+    case 'finish': {
+      const bought = list.items.filter(i => i.done);
+      list.items = list.items.filter(i => !i.done);
+      const total = cleanPrice(b.total) || 0;
+      const store = list.stores.includes(cleanText(b.store, 30)) ? cleanText(b.store, 30) : '';
+      list.trips.push({ date: todayUTC(), total, store, by, count: bought.length });
+      list.trips = list.trips.slice(-100);
+      list.shopping = null;
+      const totalText = cleanText(b.totalText, 20);
+      return { notify: {
+        title: '\u{2705} Shopping done',
+        body: `${by || 'Someone'} got ${bought.length} item${bought.length === 1 ? '' : 's'}${store ? ` at ${store}` : ''}${totalText ? ` - ${totalText}` : ''}`,
+        tag: 'shop-done',
+      } };
+    }
     default: return null;
   }
 }
 
-async function notifyListAdd(env, code, item, fromDevice) {
+function addedMessage(added) {
+  if (!added.length) return null;
+  const by = added[0].by ? ` - by ${added[0].by}` : '';
+  if (added.length === 1) {
+    const it = added[0];
+    return { title: '\u{1f6d2} Added to the shopping list', body: `${it.name}${it.qty ? ` (${it.qty})` : ''}${by}`, tag: `shop-${it.id}` };
+  }
+  return { title: `\u{1f6d2} ${added.length} items added`, body: `${added.map(i => i.name).join(', ').slice(0, 140)}${by}`, tag: `shop-${added[0].id}` };
+}
+
+// Tell everyone else who follows this list
+async function notifyList(env, code, msg, fromDevice) {
   const devices = (await env.KV.get('devices', 'json')) || {};
   const targets = Object.entries(devices).filter(([id, d]) => id !== fromDevice && (d.lists || []).includes(code));
   if (!targets.length) return;
   const keys = await vapidKeys(env);
-  await Promise.all(targets.map(([, d]) => sendPush(d.subscription, {
-    title: '\u{1f6d2} Added to the shopping list',
-    body: `${item.name}${item.qty ? ` (${item.qty})` : ''}${item.by ? ` - by ${item.by}` : ''}`,
-    tag: `shop-${item.id}`,
-  }, keys).catch(() => {})));
+  await Promise.all(targets.map(([, d]) =>
+    sendPush(d.subscription, { ...msg, url: d.app === 'shop' ? 'shop.html' : './' }, keys).catch(() => {})));
 }
 
 // ---------- handlers ----------
@@ -222,7 +358,9 @@ export default {
         if (!ALLOWED_ORIGINS.includes(origin)) return json({ error: 'forbidden' }, 403);
         const code = new URL(req.url).searchParams.get('code') || '';
         if (!LIST_CODE.test(code)) return json({ error: 'bad code' }, 400);
-        return json((await env.KV.get(`list:${code}`, 'json')) || { items: [] });
+        const list = normalizeList(await env.KV.get(`list:${code}`, 'json'));
+        if (applyStaples(list)) { list.updated = Date.now(); await env.KV.put(`list:${code}`, JSON.stringify(list)); }
+        return json(list);
       }
       if (req.method !== 'POST') return json({ error: 'not found' }, 404);
       if (!ALLOWED_ORIGINS.includes(origin)) return json({ error: 'forbidden' }, 403);
@@ -232,12 +370,14 @@ export default {
       if (path === '/list') {
         if (!LIST_CODE.test(body.code || '')) return json({ error: 'bad code' }, 400);
         const key = `list:${body.code}`;
-        const list = (await env.KV.get(key, 'json')) || { items: [] };
+        const list = normalizeList(await env.KV.get(key, 'json'));
+        applyStaples(list);
         const result = applyListOp(list, body);
         if (!result) return json({ error: 'bad request', ...list }, 400);
         list.updated = Date.now();
         await env.KV.put(key, JSON.stringify(list));
-        if (body.op === 'add') await notifyListAdd(env, body.code, result, cleanText(body.device, 40));
+        const msg = result.notify || (result.added && addedMessage(result.added));
+        if (msg) await notifyList(env, body.code, msg, cleanText(body.device, 40));
         return json(list);
       }
 
@@ -258,6 +398,7 @@ export default {
           tz: typeof body.tz === 'string' ? body.tz.slice(0, 64) : 'UTC',
           reminders,
           lists: (Array.isArray(body.lists) ? body.lists : []).filter(c => LIST_CODE.test(c)).slice(0, 5),
+          app: body.app === 'shop' ? 'shop' : 'main',
           updated: Date.now(),
         };
         await env.KV.put('devices', JSON.stringify(devices));
@@ -268,7 +409,7 @@ export default {
         const dev = devices[id];
         if (!dev) return json({ error: 'not registered' }, 404);
         const res = await sendPush(dev.subscription,
-          { title: '\u{1f514} Notifications are on', body: 'Juned Daily will remind you at the times you set.', tag: 'test' },
+          { title: '\u{1f514} Notifications are on', body: dev.app === 'shop' ? 'You will hear about shopping list updates.' : 'Juned Daily will remind you at the times you set.', tag: 'test', url: dev.app === 'shop' ? 'shop.html' : './' },
           await vapidKeys(env));
         return json({ ok: res.ok, status: res.status });
       }
@@ -299,7 +440,7 @@ export default {
     const gone = new Set();
     await Promise.all(due.map(async ({ id, dev, r }) => {
       try {
-        const res = await sendPush(dev.subscription, { title: `\u{23f0} ${r.title}`, body: 'Reminder from Juned Daily', tag: r.id }, keys);
+        const res = await sendPush(dev.subscription, { title: `\u{23f0} ${r.title}`, body: 'Reminder from Juned Daily', tag: r.id, url: './' }, keys);
         if (res.status === 404 || res.status === 410) gone.add(id);   // device unsubscribed
       } catch { /* try again next time */ }
     }));

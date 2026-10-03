@@ -290,3 +290,42 @@ details.card[open] > summary { margin-bottom: 4px; }
 .tabs button { font-size: 10.5px; }
 .add-row.nowrap { flex-wrap: nowrap; }
 .add-row.nowrap select { flex: 1; min-width: 0; }
+
+/* ---------- shopping v2 ---------- */
+.center { text-align: center; }
+.btns.spread { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.btns.end { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+.topbar > span { display: flex; gap: 4px; }
+
+.sugg { margin-top: 10px; flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; padding-bottom: 2px; }
+.sugg:empty { display: none; }
+.sugg::-webkit-scrollbar, .store-chips::-webkit-scrollbar { display: none; }
+.sugg .chip, .store-chips .chip { white-space: nowrap; flex: none; padding: 7px 12px; font-size: 14px; }
+.chips-label { flex: none; align-self: center; font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.store-chips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin: 12px 0 2px; }
+.store-chips .chip.on { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+
+.big-btn { min-height: 52px; font-size: 17px; margin-bottom: 4px; }
+.banner { background: var(--accent-soft); border-color: var(--accent); }
+.insight { margin-top: 18px; }
+
+.srow { position: relative; background: var(--surface); transition: transform .18s ease, background-color .15s; touch-action: pan-y; }
+.srow.swipe-right { background: color-mix(in srgb, var(--good) 22%, var(--surface)); }
+.srow.swipe-left { background: color-mix(in srgb, var(--danger) 22%, var(--surface)); }
+.tap { cursor: pointer; }
+.row.big { padding: 12px 0; }
+.row.big .row-title { font-size: 18px; font-weight: 500; }
+
+.stepper { display: flex; align-items: center; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; flex: none; }
+.stepper button { border: 0; background: var(--bg); width: 30px; height: 30px; font-size: 18px; line-height: 1; color: var(--accent); }
+.stepper span { min-width: 30px; text-align: center; font-size: 13px; font-weight: 700; padding: 0 2px; }
+
+.price { width: 84px; min-height: 34px; padding: 6px 8px; text-align: right; flex: none; font-variant-numeric: tabular-nums; }
+
+.shopping-head { position: sticky; top: calc(52px + env(safe-area-inset-top)); z-index: 4; }
+.progress { height: 10px; background: var(--bg); border-radius: 999px; overflow: hidden; margin: 6px 0 6px; border: 1px solid var(--line); }
+.progress i { display: block; height: 100%; background: var(--good); border-radius: 999px; transition: width .3s; }
+
+.order .row { padding: 4px 0; }
+.order .icon-btn:disabled { opacity: .25; }
+#shopSheet { max-height: 90vh; overflow: auto; }
