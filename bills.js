@@ -192,9 +192,7 @@ document.addEventListener('click', e => {
     }
     case 'bill-delete': {
       const bill = state.bills.find(x => x.id === id);
-      if (bill && confirm(`Delete the bill "${bill.name}"? Past payments stay in your expenses.`)) {
-        $('#sheet').close(); removeWithUndo('bills', id, 'Bill');
-      }
+      if (bill) { $('#sheet').close(); removeWithUndo('bills', id, 'Bill'); }   // Undo instead of "Are you sure?"
       break;
     }
   }

@@ -1,7 +1,9 @@
-// Network-first service worker: always gets the latest version when online,
-// falls back to the cached copy when offline.
-const CACHE = 'juned-daily-v31';
-const ASSETS = ['./', 'index.html', 'styles.css', 'app.js', 'theme.js', 'config.js', 'shop.js', 'mytasks.js', 'xlsx.js', 'privacy.js', 'celebrate.js', 'quickadd.js', 'insights.js', 'bills.js', 'review.js', 'manifest.json', 'icon.svg', 'icon-512.png'];
+// Network-first service worker: gets the latest version when online,
+// but on a slow connection shows the saved copy after a short wait
+// (the newer version is still saved for next time). Offline: the saved copy.
+const CACHE = 'juned-daily-v32';
+const ASSETS = ['./', 'index.html', 'styles.css', 'app.js', 'theme.js', 'config.js', 'shop.js', 'mytasks.js', 'xlsx.js', 'privacy.js', 'celebrate.js', 'quickadd.js', 'insights.js', 'bills.js', 'review.js', 'gestures.js', 'manifest.json', 'icon.svg', 'icon-512.png'];
+const WAIT_MS = 2000;   // how long to wait for the network before using the saved copy
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)));
@@ -16,15 +18,21 @@ self.addEventListener('activate', e => {
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET' || new URL(e.request.url).origin !== location.origin) return;
   // always ask the server for the newest version (skips the browser's 10-minute cache)
-  const fresh = e.request.mode === 'navigate' ? fetch(e.request.url, { cache: 'no-cache' }) : fetch(e.request, { cache: 'no-cache' });
-  e.respondWith(
-    fresh
-      .then(res => {
+  const fresh = (e.request.mode === 'navigate' ? fetch(e.request.url, { cache: 'no-cache' }) : fetch(e.request, { cache: 'no-cache' }))
+    .then(res => {
+      if (res.ok) {
         const copy = res.clone();
-        caches.open(CACHE).then(c => c.put(e.request, copy));
-        return res;
-      })
-      .catch(() => caches.match(e.request).then(r => r || caches.match('index.html')))
+        e.waitUntil(caches.open(CACHE).then(c => c.put(e.request, copy)));
+      }
+      return res;
+    });
+  const saved = () => caches.match(e.request).then(r => r || (e.request.mode === 'navigate' ? caches.match('index.html') : undefined));
+  const slow = new Promise(resolve => setTimeout(resolve, WAIT_MS)).then(saved);
+  e.waitUntil(fresh.catch(() => {}));
+  e.respondWith(
+    // whichever comes first: the fresh copy, or (after the wait) a saved copy
+    Promise.race([fresh, slow.then(r => r || fresh)])
+      .catch(() => saved().then(r => r || Response.error()))
   );
 });
 

@@ -48,16 +48,66 @@ document.addEventListener('DOMContentLoaded', () => applyTheme(currentTheme()));
 ['gesturestart', 'gesturechange', 'gestureend'].forEach(t => document.addEventListener(t, e => e.preventDefault(), { passive: false }));
 
 // ↻ Refresh: fetch the newest version of the app and the latest shared data, stay on the same screen
-document.addEventListener('click', async e => {
-  const b = e.target.closest && e.target.closest('[data-refresh]');
-  if (!b || b.classList.contains('spinning')) return;
-  b.classList.add('spinning');
+let refreshing = false;
+async function refreshApp() {
+  if (refreshing) return;
+  refreshing = true;
+  document.querySelectorAll('[data-refresh]').forEach(b => b.classList.add('spinning'));
   try {
     const reg = 'serviceWorker' in navigator && await navigator.serviceWorker.getRegistration();
     if (reg) await Promise.race([reg.update(), new Promise(r => setTimeout(r, 2500))]);
   } catch { /* offline — reload what we have */ }
   location.reload();
+}
+document.addEventListener('click', e => {
+  if (e.target.closest && e.target.closest('[data-refresh]')) refreshApp();
 });
+
+// Pull down from the top of the page to refresh (same as ↻)
+(() => {
+  const PULL = 70;   // how far to pull (px) before letting go refreshes
+  let start = null, ind = null;
+  const indicator = () => {
+    if (!ind) {
+      ind = document.createElement('div');
+      ind.className = 'ptr';
+      ind.setAttribute('aria-hidden', 'true');
+      ind.innerHTML = '<svg viewBox="0 0 24 24" width="22" height="22"><path d="M20 12a8 8 0 1 1-2.34-5.66M20 4v5h-5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+      document.body.appendChild(ind);
+    }
+    return ind;
+  };
+  const hide = () => { if (ind) { ind.classList.remove('pulling', 'ready'); ind.style.transform = ''; ind.style.opacity = ''; } };
+  document.addEventListener('touchstart', e => {
+    start = null;
+    if (refreshing || e.touches.length > 1 || window.scrollY > 0 || document.querySelector('dialog[open]')) return;
+    if (e.target.closest && e.target.closest('input, textarea, select, .tabs')) return;
+    start = { x: e.touches[0].clientX, y: e.touches[0].clientY, on: false, dy: 0 };
+  }, { passive: true });
+  document.addEventListener('touchmove', e => {
+    if (!start) return;
+    const dx = e.touches[0].clientX - start.x, dy = e.touches[0].clientY - start.y;
+    if (!start.on) {
+      if (dy > 10 && dy > Math.abs(dx) * 1.5 && window.scrollY <= 0) start.on = true;
+      else if (Math.abs(dx) > 10 || dy < -10) { start = null; return; }
+      else return;
+    }
+    start.dy = dy;
+    const pull = Math.min(dy * 0.55, PULL * 1.3), el = indicator();
+    el.classList.add('pulling');
+    el.style.transform = `translate(-50%, ${pull}px) rotate(${dy * 2.2}deg)`;
+    el.style.opacity = Math.min(1, dy / PULL);
+    el.classList.toggle('ready', dy * 0.55 >= PULL * 0.75);
+  }, { passive: true });
+  const end = () => {
+    if (!start) return;
+    const go = start.on && start.dy * 0.55 >= PULL * 0.75;
+    start = null;
+    if (go) { ind.classList.remove('pulling'); ind.classList.add('spin'); refreshApp(); } else hide();
+  };
+  document.addEventListener('touchend', end);
+  document.addEventListener('touchcancel', () => { start = null; hide(); });
+})();
 
 // Line icons used on task rows (same style as ↻ and ☰)
 const ICONS = {

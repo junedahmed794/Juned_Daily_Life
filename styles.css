@@ -638,3 +638,40 @@ ul.plain li:last-child { border-bottom: 0; }
 .seg-mini { display: grid; grid-template-columns: 1fr 1fr; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 3px; gap: 2px; flex: none; }
 .seg-mini button { border: 0; background: none; border-radius: 8px; padding: 7px 10px; font-size: 13px; font-weight: 600; color: var(--muted); white-space: nowrap; }
 .seg-mini button.on { background: var(--accent); color: var(--accent-text); }
+
+/* ---------- edit, swipe & gestures ---------- */
+.card-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 4px; }
+.card-foot .link { font-size: 13px; }
+.srow.swiping { transition: background-color .15s; }
+.srow.swipe-right .check { border-color: var(--good); }
+
+/* Today: tap a category, type the amount */
+.cat-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.cat-chips .chip { padding: 6px 11px; font-size: 14px; cursor: pointer; white-space: nowrap; user-select: none; -webkit-user-select: none; }
+.cat-chips input { position: absolute; opacity: 0; pointer-events: none; width: 0; min-height: 0; }
+.cat-chips .chip:has(input:checked) { background: var(--accent); border-color: var(--accent); color: var(--accent-text); font-weight: 600; }
+.cat-chips .chip:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* swipe between tabs */
+#view { transition: transform .22s ease; }
+#view.swiping { transition: none; }
+@keyframes from-right { from { transform: translateX(32px); opacity: .3; } to { transform: none; opacity: 1; } }
+@keyframes from-left { from { transform: translateX(-32px); opacity: .3; } to { transform: none; opacity: 1; } }
+#view.slide-from-right { animation: from-right .24s ease-out; }
+#view.slide-from-left { animation: from-left .24s ease-out; }
+
+/* pull down to refresh */
+.ptr {
+  position: fixed; top: calc(env(safe-area-inset-top) + 4px); left: 50%; z-index: 30;
+  width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--surface); color: var(--muted); border: 1px solid var(--line);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, .15); pointer-events: none;
+  opacity: 0; transform: translate(-50%, 0);
+}
+.ptr:not(.pulling) { transition: opacity .2s, transform .2s; }
+.ptr.ready { color: var(--accent); }
+.ptr.spin svg { animation: spin .7s linear infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  #view, #view.slide-from-right, #view.slide-from-left { transition: none; animation: none; }
+}

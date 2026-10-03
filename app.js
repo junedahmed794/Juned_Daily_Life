@@ -25,7 +25,9 @@ const CATS = {
   out: ['Food', 'Groceries', 'Transport', 'Bills', 'Shopping', 'Health', 'Fun', 'Other'],
   in: ['Salary', 'Side income', 'Gift', 'Other'],
 };
-const CURRENCIES = ['USD', 'EUR', 'GBP', 'INR', 'PKR', 'BDT', 'AED', 'SAR', 'CAD', 'AUD', 'JPY', 'NGN'];
+const CAT_ICONS = { Food: '🍔', Groceries: '🛒', Transport: '🚗', Bills: '🧾', Shopping: '🛍️', Health: '💊', Fun: '🎉', Other: '📦', Salary: '💼', 'Side income': '💡', Gift: '🎁' };
+const catLabel = c => `${CAT_ICONS[c] || '📦'} ${c}`;
+const CURRENCIES =['USD', 'EUR', 'GBP', 'INR', 'PKR', 'BDT', 'AED', 'SAR', 'CAD', 'AUD', 'JPY', 'NGN'];
 const TABS = { today: 'Today', tasks: 'Tasks', habits: 'Habits', money: 'Expense', office: 'Office', shop: 'Shop', journal: 'Journal', insights: 'Insights', review: 'Weekly review' };
 
 function fmtDate(k) {
@@ -82,14 +84,24 @@ function load() {
   return defaults();
 }
 
+let saveTimer = null;
 function save() {
+  clearTimeout(saveTimer); saveTimer = null;
   try { localStorage.setItem(KEY, JSON.stringify(state)); }
   catch { toast('Could not save — browser storage is unavailable'); }
   scheduleSync();
 }
+// For typing: save once you pause, instead of on every letter
+function saveSoon(then) {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => { save(); if (then) then(); }, 600);
+}
+const flushSave = () => { if (saveTimer) save(); };
+addEventListener('pagehide', flushSave);
+document.addEventListener('visibilitychange', () => { if (document.hidden) flushSave(); });
 
 let state = load();
-const ui = { tab: 'today', month: today().slice(0, 7), jdate: today(), day: today(), office: 'hours' };
+const ui = { tab: 'today', month: today().slice(0, 7), jdate: today(), day: today(), office: 'hours', cat: 'Food' };
 try { const t = localStorage.getItem(KEY + ':tab'); if (TABS[t]) ui.tab = t; } catch { /* ignore */ }
 {
   const linked = new URLSearchParams(location.search).get('tab');
@@ -177,7 +189,7 @@ function taskRow(t, { check = true } = {}) {
   const bell = t.time && !(t.repeat === 'none' && t.done)
     ? `<button class="act bell ${t.remind ? 'on' : ''}" data-action="toggle-remind" data-id="${t.id}"
         aria-label="${t.remind ? 'Turn off reminder' : 'Turn on reminder'}" aria-pressed="${!!t.remind}">${t.remind ? ICONS.bell : ICONS.bellOff}</button>` : '';
-  return `<li class="row ${done ? 'done' : ''}">
+  return `<li class="row srow ${done ? 'done' : ''}" ${check ? 'data-sw-r="toggle-task"' : ''} data-sw-l="del-task">
     <button class="check ${done ? 'on' : ''} ${check ? '' : 'ghost'}" data-action="toggle-task" data-id="${t.id}"
       aria-label="${done ? 'Mark not done' : 'Mark done'}: ${esc(t.title)}" ${check ? '' : 'tabindex="-1"'}></button>
     <div class="grow tap" data-action="edit-task" data-id="${t.id}"><div class="row-title">${esc(t.title)}</div>${meta ? `<div class="meta">${meta}</div>` : ''}</div>
@@ -239,8 +251,8 @@ function habitCard(h) {
   const s = streak(h);
   return `<div class="card">
     <div class="habit-head">
-      <span class="emoji">${esc(h.emoji || '✅')}</span>
-      <div class="grow">
+      <span class="emoji tap" data-action="edit" data-kind="habit" data-id="${h.id}">${esc(h.emoji || '✅')}</span>
+      <div class="grow tap" data-action="edit" data-kind="habit" data-id="${h.id}">
         <div class="row-title"><strong>${esc(h.name)}</strong></div>
         <div class="meta">${s ? `🔥 ${s}-day streak` : 'No streak yet'} · ${last30(h)}/30 days</div>
       </div>
@@ -252,13 +264,15 @@ function habitCard(h) {
         data-id="${h.id}" data-day="${d}" aria-label="${fmtLong(d)}">
         ${WEEKDAYS[parseKey(d).getDay()].slice(0, 1)}<small>${parseKey(d).getDate()}</small></button>`).join('')}
     </div>
-    <button class="link danger" data-action="del-habit" data-id="${h.id}">Delete habit</button>
+    <div class="card-foot"><button class="link" data-action="edit" data-kind="habit" data-id="${h.id}">✏️ Edit</button>
+      <button class="link danger" data-action="del-habit" data-id="${h.id}">Delete habit</button></div>
   </div>`;
 }
 
 // ---------- money ----------
 const catOptions = (type, selected) =>
-  CATS[type].map(c => `<option ${c === selected ? 'selected' : ''}>${c}</option>`).join('');
+  [...CATS[type], ...(selected && !CATS[type].includes(selected) ? [selected] : [])]
+    .map(c => `<option value="${esc(c)}" ${c === selected ? 'selected' : ''}>${esc(catLabel(c))}</option>`).join('');
 
 function parseAmount(v) {
   const n = parseFloat(String(v).replace(/[^\d.,-]/g, '').replace(',', '.'));
@@ -274,7 +288,13 @@ function fmtDur(min) {
   const h = Math.floor(min / 60), m = min % 60;
   return h ? `${h}h ${pad(m)}m` : `${m}m`;
 }
-const shiftMin = sh => Math.max(0, ((sh.end || Date.now()) - sh.start) / 6e4 - (sh.breakMin || 0));
+// running clock while clocked in: "1h 05m 12s"
+function fmtLive(sec) {
+  sec = Math.max(0, Math.floor(sec));
+  const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+  return h ? `${h}h ${pad(m)}m ${pad(s)}s` : `${m}m ${pad(s)}s`;
+}
+const shiftMin = sh =>Math.max(0, ((sh.end || Date.now()) - sh.start) / 6e4 - (sh.breakMin || 0));
 const workMin = k => state.office.shifts.filter(sh => sh.date === k).reduce((t, sh) => t + shiftMin(sh), 0);
 const openShift = () => state.office.shifts.find(sh => !sh.end);
 const dayOff = k => state.office.daysOff.find(d => d.date === k);
@@ -304,7 +324,7 @@ function officeHours() {
   <div class="card clock">
     ${open
       ? `<div class="meta">Clocked in at ${fmtTime(open.start)}</div>
-         <div class="big">${fmtDur(shiftMin(open))}</div>
+         <div class="big" data-live-since="${open.start}" data-break="${open.breakMin || 0}">${fmtLive(shiftMin(open) * 60)}</div>
          <button class="btn danger-fill block" data-action="clock-out">Clock out</button>`
       : `<div class="meta">${todayMin ? `Worked today: ${fmtDur(todayMin)}` : 'Not clocked in'}</div>
          <button class="btn primary block" data-action="clock-in">Clock in</button>`}
@@ -348,14 +368,14 @@ function officeHours() {
     </form>
   </details>
 
-  ${recent.length ? `<h2 class="sec">Recent entries</h2><div class="card"><ul class="list">${recent.map(sh => `<li class="row">
-    <div class="grow"><div class="row-title">${fmtDate(sh.date)}</div>
+  ${recent.length ? `<h2 class="sec">Recent entries</h2><div class="card"><ul class="list">${recent.map(sh => `<li class="row srow" data-sw-l="del-shift">
+    <div class="grow tap" data-action="edit" data-kind="shift" data-id="${sh.id}"><div class="row-title">${fmtDate(sh.date)}</div>
       <div class="meta">${fmtTime(sh.start)} – ${sh.end ? fmtTime(sh.end) : 'now'}${sh.breakMin ? ` · ${sh.breakMin}m break` : ''}</div></div>
     <span class="amt">${fmtDur(shiftMin(sh))}</span>
     <button class="icon-btn" data-action="del-shift" data-id="${sh.id}" aria-label="Delete entry">×</button></li>`).join('')}</ul></div>` : ''}
 
-  ${offs.length ? `<h2 class="sec">Days off</h2><div class="card"><ul class="list">${offs.map(o => `<li class="row">
-    <div class="grow"><div class="row-title">${fmtDate(o.date)}</div><div class="meta">🌴 ${esc(o.type)}</div></div>
+  ${offs.length ? `<h2 class="sec">Days off</h2><div class="card"><ul class="list">${offs.map(o => `<li class="row srow" data-sw-l="del-dayoff">
+    <div class="grow tap" data-action="edit" data-kind="dayoff" data-id="${o.id}"><div class="row-title">${fmtDate(o.date)}</div><div class="meta">🌴 ${esc(o.type)}</div></div>
     <button class="icon-btn" data-action="del-dayoff" data-id="${o.id}" aria-label="Delete day off">×</button></li>`).join('')}</ul></div>` : ''}`;
 }
 
@@ -365,10 +385,10 @@ function officeTaskRow(t) {
   if (t.done && t.doneAt) due = `Done ${fmtDate(t.doneAt).toLowerCase()}`;
   else if (t.due) due = t.due < k ? `<span class="overdue">Overdue · ${fmtDate(t.due)}</span>` : `Due ${fmtDate(t.due).toLowerCase()}`;
   const p = PRIORITY[t.priority] || PRIORITY.med;
-  return `<li class="row ${t.done ? 'done' : ''}">
+  return `<li class="row srow ${t.done ? 'done' : ''}" data-sw-r="toggle-otask" data-sw-l="del-otask">
     <button class="check ${t.done ? 'on' : ''}" data-action="toggle-otask" data-id="${t.id}"
       aria-label="${t.done ? 'Mark not done' : 'Mark done'}: ${esc(t.title)}"></button>
-    <div class="grow"><div class="row-title">${esc(t.title)}</div>
+    <div class="grow tap" data-action="edit" data-kind="otask" data-id="${t.id}"><div class="row-title">${esc(t.title)}</div>
       <div class="meta"><span class="pri pri-${t.priority}">${p.label}</span>${due ? ` ${due}` : ''}</div></div>
     <button class="icon-btn" data-action="del-otask" data-id="${t.id}" aria-label="Delete task">×</button>
   </li>`;
@@ -400,7 +420,7 @@ function officeMeetings() {
   const ms = [...state.office.meetings].sort((a, b) =>
     b.date.localeCompare(a.date) || (b.time || '').localeCompare(a.time || '') || b.created - a.created);
   const pending = ms.flatMap(m => m.actions.filter(a => !a.done).map(a => ({ m, a })));
-  const actionRow = (m, a, showMeeting) => `<li class="row ${a.done ? 'done' : ''}">
+  const actionRow = (m, a, showMeeting) => `<li class="row srow ${a.done ? 'done' : ''}" data-sw-r="toggle-action">
     <button class="check ${a.done ? 'on' : ''}" data-action="toggle-action" data-id="${m.id}" data-aid="${a.id}"
       aria-label="${a.done ? 'Mark not done' : 'Mark done'}: ${esc(a.text)}"></button>
     <div class="grow"><div class="row-title">${esc(a.text)}</div>${showMeeting ? `<div class="meta">${esc(m.title)} · ${fmtDate(m.date)}</div>` : ''}</div>
@@ -428,7 +448,8 @@ function officeMeetings() {
     <div class="meta">${fmtDate(m.date)}${m.time ? ` · ${m.time}` : ''}</div>
     ${m.notes ? `<p class="note">${esc(m.notes)}</p>` : ''}
     ${m.actions.length ? `<ul class="list">${m.actions.map(a => actionRow(m, a, false)).join('')}</ul>` : ''}
-    <button class="link danger" data-action="del-meeting" data-id="${m.id}">Delete meeting</button>
+    <div class="card-foot"><button class="link" data-action="edit" data-kind="meeting" data-id="${m.id}">✏️ Edit</button>
+      <button class="link danger" data-action="del-meeting" data-id="${m.id}">Delete meeting</button></div>
   </div>`).join('')}` : '<p class="empty" style="text-align:center">No meetings logged yet.</p>'}`;
 }
 
@@ -630,6 +651,152 @@ async function shareOrDownload(blob, name) {
   return true;
 }
 
+// ---------- edit sheets: tap an item to change it ----------
+const hmOf = ms => { const d = new Date(ms); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+
+const EDITS = {
+  expense: {
+    find: id => state.expenses.find(x => x.id === id), del: 'del-expense',
+    title: e => (e.type === 'in' ? '✏️ Edit income' : '✏️ Edit expense'),
+    fields: e => `
+      ${state.settings.trackIncome || e.type === 'in' ? `<div class="seg" role="radiogroup" aria-label="Type" style="margin-top:12px">
+        <label><input type="radio" name="type" value="out" ${e.type === 'out' ? 'checked' : ''}> Expense</label>
+        <label><input type="radio" name="type" value="in" ${e.type === 'in' ? 'checked' : ''}> Income</label>
+      </div>` : '<input type="hidden" name="type" value="out">'}
+      <div class="two">
+        <label class="lbl">Amount<input name="amount" inputmode="decimal" value="${e.amount}" required></label>
+        <label class="lbl">Category<select name="category">${catOptions(e.type, e.category)}</select></label>
+      </div>
+      <label class="lbl">Note<input name="note" value="${esc(e.note || '')}" maxlength="120" autocomplete="off" placeholder="Optional"></label>
+      <label class="lbl">Date<input type="date" name="date" value="${e.date}" required></label>`,
+    save(e, d) {
+      const amount = parseAmount(d.amount);
+      if (!amount) { toast('Enter an amount greater than 0'); return false; }
+      Object.assign(e, { type: d.type === 'in' ? 'in' : 'out', amount, category: d.category || 'Other', note: (d.note || '').trim(), date: d.date || e.date });
+      return `✏️ Saved · ${money(amount)}`;
+    },
+  },
+  habit: {
+    find: id => state.habits.find(x => x.id === id), del: 'del-habit',
+    title: () => '✏️ Edit habit',
+    fields: h => `
+      <div class="add-row" style="margin-top:14px">
+        <input name="emoji" class="emoji-in" maxlength="4" value="${esc(h.emoji || '')}" placeholder="✅" aria-label="Emoji">
+        <input name="name" class="grow" value="${esc(h.name)}" maxlength="60" required autocomplete="off" aria-label="Habit name">
+      </div>
+      <p class="meta">Your streak and history stay the same.</p>`,
+    save(h, d) {
+      const name = (d.name || '').trim();
+      if (!name) return false;
+      Object.assign(h, { name, emoji: (d.emoji || '').trim() || '✅' });
+      return '✏️ Habit saved';
+    },
+  },
+  otask: {
+    find: id => state.office.tasks.find(x => x.id === id), del: 'del-otask',
+    title: () => '✏️ Edit work task',
+    fields: t => `
+      <label class="lbl">Task<input name="title" value="${esc(t.title)}" maxlength="120" required autocomplete="off"></label>
+      <div class="two">
+        <label class="lbl">Priority<select name="priority">${Object.entries(PRIORITY).map(([v, p]) => `<option value="${v}" ${v === t.priority ? 'selected' : ''}>${p.label}</option>`).join('')}</select></label>
+        <label class="lbl">Deadline<input type="date" name="due" value="${t.due || ''}"></label>
+      </div>`,
+    save(t, d) {
+      const title = (d.title || '').trim();
+      if (!title) return false;
+      Object.assign(t, { title, priority: PRIORITY[d.priority] ? d.priority : 'med', due: d.due || null });
+      return '✏️ Work task saved';
+    },
+  },
+  meeting: {
+    find: id => state.office.meetings.find(x => x.id === id), del: 'del-meeting',
+    title: () => '✏️ Edit meeting',
+    fields: m => `
+      <label class="lbl">Title<input name="title" value="${esc(m.title)}" required autocomplete="off"></label>
+      <div class="two">
+        <label class="lbl">Date<input type="date" name="date" value="${m.date}" required></label>
+        <label class="lbl">Time<input type="time" name="time" value="${m.time || ''}"></label>
+      </div>
+      <label class="lbl">Notes<textarea name="notes" rows="4">${esc(m.notes || '')}</textarea></label>
+      <label class="lbl">Action items <span class="meta">(one per line)</span><textarea name="actions" rows="3">${esc(m.actions.map(a => a.text).join('\n'))}</textarea></label>`,
+    save(m, d) {
+      const title = (d.title || '').trim();
+      if (!title) return false;
+      // keep ticks on action items whose text didn't change
+      const old = [...m.actions];
+      const actions = (d.actions || '').split('\n').map(x => x.trim()).filter(Boolean).map(text => {
+        const i = old.findIndex(a => a.text === text);
+        return i >= 0 ? old.splice(i, 1)[0] : { id: uid(), text, done: false };
+      });
+      Object.assign(m, { title, date: d.date || m.date, time: d.time || '', notes: (d.notes || '').trim(), actions });
+      return '✏️ Meeting saved';
+    },
+  },
+  shift: {
+    find: id => state.office.shifts.find(x => x.id === id), del: 'del-shift',
+    title: () => '✏️ Edit hours',
+    fields: sh => `
+      <div class="two">
+        <label class="lbl">Date<input type="date" name="date" value="${sh.date}" required></label>
+        <label class="lbl">Break (minutes)<input type="number" name="break" min="0" step="5" inputmode="numeric" value="${sh.breakMin || ''}" placeholder="0"></label>
+        <label class="lbl">Start<input type="time" name="start" value="${hmOf(sh.start)}" required></label>
+        <label class="lbl">End<input type="time" name="end" value="${sh.end ? hmOf(sh.end) : ''}" ${sh.end ? 'required' : ''}></label>
+      </div>
+      ${sh.end ? '' : '<p class="meta">You’re still clocked in — leave End empty to keep the clock running.</p>'}`,
+    save(sh, d) {
+      if (!d.date || !d.start) return false;
+      const start = atTime(d.date, d.start);
+      let end = null;
+      if (d.end) { end = atTime(d.date, d.end); if (end <= start) end += 864e5; }   // past midnight
+      else if (sh.end) { toast('Enter an end time'); return false; }
+      if (!end && start > Date.now()) { toast('The start time is still to come'); return false; }
+      Object.assign(sh, { date: d.date, start, end, breakMin: Math.max(0, parseInt(d.break, 10) || 0) });
+      return `✏️ Saved · ${fmtDur(shiftMin(sh))}`;
+    },
+  },
+  dayoff: {
+    find: id => state.office.daysOff.find(x => x.id === id), del: 'del-dayoff',
+    title: () => '✏️ Edit day off',
+    fields: o => `
+      <div class="two">
+        <label class="lbl">Date<input type="date" name="date" value="${o.date}" required></label>
+        <label class="lbl">Type<select name="type">${[...new Set([...LEAVE, o.type])].map(l => `<option ${l === o.type ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label>
+      </div>`,
+    save(o, d) {
+      if (!d.date) return false;
+      Object.assign(o, { date: d.date, type: d.type || 'Day off' });
+      state.office.daysOff = state.office.daysOff.filter(x => x === o || x.date !== o.date);   // one entry per day
+      return `🌴 ${o.type} · ${fmtDate(o.date)}`;
+    },
+  },
+};
+
+function openEdit(kind, id) {
+  const spec = EDITS[kind], item = spec && spec.find(id);
+  if (!item) return;
+  const dlg = $('#sheet');
+  dlg.classList.remove('full');
+  dlg.innerHTML = `<form class="sheet" data-edit="${kind}" data-id="${id}">
+    <h2>${spec.title(item)}</h2>
+    ${spec.fields(item)}
+    <div class="btns spread" style="margin-top:18px">
+      <button type="button" class="btn danger" data-action="${spec.del}" data-id="${id}">Delete</button>
+      <span class="btns"><button type="button" class="btn" data-action="close-sheet">Cancel</button><button class="btn primary">Save</button></span>
+    </div>
+  </form>`;
+  if (!dlg.open) dlg.showModal();
+}
+
+function saveEdit(kind, id, d) {
+  const spec = EDITS[kind], item = spec && spec.find(id);
+  if (!item) { $('#sheet').close(); return; }
+  const msg = spec.save(item, d);
+  if (msg === false) return;
+  $('#sheet').close();
+  save(); render();
+  toast(msg);
+}
+
 // ---------- views ----------
 const views = {};
 
@@ -701,11 +868,14 @@ views.today = () => {
     <div class="meta">This month: <strong>${Privacy.pm(spentMonth)}</strong> spent</div>
     ${state.bills.filter(b => b.next <= addDays(k, 3)).sort((a, b) => a.next.localeCompare(b.next)).map(b =>
       `<div class="meta bill-soon">🧾 <b>${esc(b.name)}</b> — ${dueLabel(b.next)}</div>`).join('')}
-    <form class="quick" data-form="expense">
+    <form data-form="expense">
       <input type="hidden" name="type" value="out">
-      <input name="amount" inputmode="decimal" placeholder="Amount" required aria-label="Amount" style="flex:1">
-      <select name="category" aria-label="Category" style="flex:1">${catOptions('out')}</select>
-      <button class="btn primary">Log</button>
+      <div class="cat-chips" role="radiogroup" aria-label="Category">${CATS.out.map(c => `<label class="chip">
+        <input type="radio" name="category" value="${c}" ${c === ui.cat ? 'checked' : ''}>${catLabel(c)}</label>`).join('')}</div>
+      <div class="quick">
+        <input name="amount" inputmode="decimal" placeholder="Amount" required aria-label="Amount" style="flex:1">
+        <button class="btn primary">Log</button>
+      </div>
     </form>
   </section>`;
 };
@@ -818,9 +988,9 @@ views.money = () => {
   ${items.length ? `<div class="card">${Object.entries(groups).map(([d, list]) => `
     <div class="day-label">${fmtDate(d)}</div>
     <ul class="list">${list.map(e => `
-      <li class="row">
-        <div class="grow"><div class="row-title">${esc(e.category)}</div>${e.note ? `<div class="meta">${esc(e.note)}</div>` : ''}</div>
-        <span class="amt ${e.type === 'in' ? 'pos' : ''}">${e.type === 'in' ? '+' : '−'}${money(e.amount)}</span>
+      <li class="row srow" data-sw-l="del-expense">
+        <div class="grow tap" data-action="edit" data-kind="expense" data-id="${e.id}"><div class="row-title">${esc(catLabel(e.category))}</div>${e.note ? `<div class="meta">${esc(e.note)}</div>` : ''}</div>
+        <span class="amt tap ${e.type === 'in' ? 'pos' : ''}" data-action="edit" data-kind="expense" data-id="${e.id}">${e.type === 'in' ? '+' : '−'}${money(e.amount)}</span>
         <button class="icon-btn" data-action="del-expense" data-id="${e.id}" aria-label="Delete entry">×</button>
       </li>`).join('')}</ul>`).join('')}</div>`
     : '<p class="empty" style="text-align:center">Nothing logged this month yet.</p>'}`;
@@ -993,7 +1163,7 @@ function toast(msg, undo) {
   if (undo) el.querySelector('button').onclick = () => { undo(); el.classList.remove('show'); };
   el.classList.add('show');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.classList.remove('show'), 4000);
+  toastTimer = setTimeout(() => el.classList.remove('show'), undo ? 6000 : 4000);   // a bit longer to tap Undo
 }
 
 const listAt = path => path.split('.').reduce((o, k) => o[k], state);
@@ -1008,11 +1178,11 @@ function removeWithUndo(list, id, label) {
 }
 
 // ---------- journal edits ----------
-function setJournal(k, field, value) {
+function setJournal(k, field, value, typing = false) {
   const e = { ...(state.journal[k] || {}) };
   if (value === '' || value === null || value === undefined) delete e[field]; else e[field] = value;
   if (Object.keys(e).length) state.journal[k] = e; else delete state.journal[k];
-  save();
+  if (typing) saveSoon(flashSaved); else save();
 }
 
 // ---------- reminders (push notifications) ----------
@@ -1300,8 +1470,10 @@ document.addEventListener('click', e => {
   const b = e.target.closest('[data-action]');
   if (!b) return;
   const { action, id, day } = b.dataset;
+  if (action.startsWith('del-') && $('#sheet').open) $('#sheet').close();   // Delete inside an edit sheet
 
   switch (action) {
+    case 'edit': openEdit(b.dataset.kind, id); break;
     case 'go':
       if (b.dataset.tab === 'money') Privacy.openMoney();   // Face ID prompt needs the tap
       go(b.dataset.tab);
@@ -1317,7 +1489,7 @@ document.addEventListener('click', e => {
       celebrateDay(before);
       break;
     }
-    case 'del-task': if ($('#sheet').open) $('#sheet').close(); removeWithUndo('tasks', id, 'Task'); break;
+    case 'del-task': removeWithUndo('tasks', id, 'Task'); break;
     case 'edit-task': openTaskEdit(id); break;
     case 'toggle-remind': {
       const t = state.tasks.find(x => x.id === id);
@@ -1356,11 +1528,7 @@ document.addEventListener('click', e => {
       if (!celebrateStreak(h)) celebrateDay(before);
       break;
     }
-    case 'del-habit': {
-      const h = state.habits.find(x => x.id === id);
-      if (h && confirm(`Delete "${h.name}" and all its history?`)) removeWithUndo('habits', id, 'Habit');
-      break;
-    }
+    case 'del-habit': removeWithUndo('habits', id, 'Habit'); break;
 
     case 'del-expense': removeWithUndo('expenses', id, 'Entry'); break;
     case 'month': {
@@ -1408,11 +1576,7 @@ document.addEventListener('click', e => {
       if (a) { a.done = !a.done; save(); render(); }
       break;
     }
-    case 'del-meeting': {
-      const m = state.office.meetings.find(x => x.id === id);
-      if (m && confirm(`Delete the meeting "${m.title}"?`)) removeWithUndo('office.meetings', id, 'Meeting');
-      break;
-    }
+    case 'del-meeting': removeWithUndo('office.meetings', id, 'Meeting'); break;
 
     case 'export': if (Privacy.requireUnlock('To export a backup')) exportData(); break;
     case 'report': if (Privacy.requireUnlock('To export the report')) exportReport(b.dataset.week); break;
@@ -1432,11 +1596,13 @@ document.addEventListener('click', e => {
 });
 
 document.addEventListener('submit', e => {
-  const f = e.target.closest('form[data-form], form[data-task-edit]');
+  const f = e.target.closest('form[data-form], form[data-task-edit], form[data-edit]');
   if (!f) return;
   e.preventDefault();
   const d = Object.fromEntries(new FormData(f));
   const kind = f.dataset.form;
+
+  if (f.dataset.edit) { saveEdit(f.dataset.edit, f.dataset.id, d); return; }
 
   if (f.dataset.taskEdit) {
     const t = state.tasks.find(x => x.id === f.dataset.taskEdit);
@@ -1494,6 +1660,7 @@ document.addEventListener('submit', e => {
     const amount = parseAmount(d.amount);
     if (!amount) { toast('Enter an amount greater than 0'); return; }
     const type = d.type === 'in' ? 'in' : 'out';
+    if (type === 'out' && d.category) ui.cat = d.category;   // Today keeps the last category picked
     state.expenses.push({
       id: uid(), type, amount, category: d.category || 'Other',
       note: (d.note || '').trim(), date: d.date || today(), created: Date.now(),
@@ -1591,12 +1758,11 @@ function flashSaved() {
 }
 document.addEventListener('input', e => {
   const f = e.target.dataset.j;
-  if (f === 'text') setJournal(ui.jdate, 'text', e.target.value.trim() ? e.target.value : null);
+  if (f === 'text') setJournal(ui.jdate, 'text', e.target.value.trim() ? e.target.value : null, true);
   else if (f === 'sleep') {
     const n = parseFloat(e.target.value);
-    setJournal(ui.jdate, 'sleep', Number.isFinite(n) && n >= 0 && n <= 24 ? n : null);
-  } else return;
-  flashSaved();
+    setJournal(ui.jdate, 'sleep', Number.isFinite(n) && n >= 0 && n <= 24 ? n : null, true);
+  }
 });
 
 // Roll over to the new day if the app stays open past midnight
@@ -1612,6 +1778,12 @@ function checkDay() {
 }
 document.addEventListener('visibilitychange', () => { if (!document.hidden) checkDay(); });
 setInterval(checkDay, 60 * 1000);
+
+// Office: the clock counts up every second while you're clocked in
+setInterval(() => {
+  const el = !document.hidden && $('[data-live-since]');
+  if (el) el.textContent = fmtLive((Date.now() - Number(el.dataset.liveSince)) / 1000 - Number(el.dataset.break) * 60);
+}, 1000);
 
 // settings use a full-screen sheet; other sheets (quick add) don't
 $('#sheet').addEventListener('close', () => { if (!$('#sheet').open) $('#sheet').classList.remove('full'); });
