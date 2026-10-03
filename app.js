@@ -26,7 +26,7 @@ const CATS = {
   in: ['Salary', 'Side income', 'Gift', 'Other'],
 };
 const CURRENCIES = ['USD', 'EUR', 'GBP', 'INR', 'PKR', 'BDT', 'AED', 'SAR', 'CAD', 'AUD', 'JPY', 'NGN'];
-const TABS = { today: 'Today', tasks: 'Tasks', habits: 'Habits', money: 'Money', office: 'Office', shop: 'Shop', journal: 'Journal', insights: 'Insights' };
+const TABS = { today: 'Today', tasks: 'Tasks', habits: 'Habits', money: 'Expense', office: 'Office', shop: 'Shop', journal: 'Journal', insights: 'Insights' };
 
 function fmtDate(k) {
   const t = today();
@@ -655,7 +655,7 @@ views.today = () => {
   </section>
 
   <section class="card">
-    <div class="card-head"><h2>Money</h2><button class="link" data-action="go" data-tab="money">Details →</button></div>
+    <div class="card-head"><h2>Expenses</h2><button class="link" data-action="go" data-tab="money">Details →</button></div>
     <div class="meta">This month: <strong>${Privacy.pm(spentMonth)}</strong> spent</div>
     <form class="quick" data-form="expense">
       <input type="hidden" name="type" value="out">
@@ -1121,7 +1121,7 @@ function openSettings() {
     <h2>Settings</h2>
     <p class="meta">${counts}</p>
     <label class="toggle" style="margin-top:14px"><input type="checkbox" id="trackIncome" ${state.settings.trackIncome ? 'checked' : ''}>
-      <span><b>💵 Track income too</b><small class="meta" style="display:block;font-weight:400">Off: Money is an expense tracker only. Any income you entered stays saved but hidden.</small></span></label>
+      <span><b>💵 Track income too</b><small class="meta" style="display:block;font-weight:400">Off: Expense is a spending tracker only. Any income you entered stays saved but hidden.</small></span></label>
     ${Privacy.settingsHtml()}
     <span class="lbl">Tabs in the bottom bar</span>
     <div class="chips tab-picker">${OPTIONAL_TABS.map(t => `<button type="button" class="chip ${tabShown(t) ? 'on' : ''}" data-action="toggle-tab" data-tab="${t}" aria-pressed="${tabShown(t)}">${tabShown(t) ? '✓ ' : ''}${TABS[t]}</button>`).join('')}</div>

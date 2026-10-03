@@ -136,7 +136,7 @@ function spendingChart() {
   const by = m => { const o = {}; out.filter(e => e.date.startsWith(m)).forEach(e => { o[e.category] = (o[e.category] || 0) + e.amount; }); return o; };
   const a = by(thisM), b = by(lastM);
   const cats = [...new Set([...Object.keys(a), ...Object.keys(b)])].sort((x, y) => (a[y] || 0) - (a[x] || 0) || (b[y] || 0) - (b[x] || 0));
-  if (!cats.length) return chartFigure('💰 Spending by category', '<p class="empty">Log a few expenses to compare months.</p>', '');
+  if (!cats.length) return chartFigure('🧾 Spending by category', '<p class="empty">Log a few expenses to compare months.</p>', '');
   const ta = Object.values(a).reduce((s, n) => s + n, 0), tb = Object.values(b).reduce((s, n) => s + n, 0);
   const max = Math.max(...cats.map(c => Math.max(a[c] || 0, b[c] || 0))) || 1;
   const rowH = 30, L = 82, W = 320, R = 64, H = cats.length * rowH;
@@ -158,7 +158,7 @@ function spendingChart() {
   const head = `<div class="hero-num"><b>${Privacy.pmText(ta)}</b> <span class="meta">this month so far${change === null ? '' : ` · ${change >= 0 ? '▲' : '▼'} ${Math.abs(change)}% vs the same days last month (${Privacy.pmText(tbSame)})`}</span></div>
     <div class="meta" style="margin-bottom:6px">Last month in total: ${Privacy.pmText(tb)}</div>
     <div class="legend"><span><i class="sw bar"></i>This month</span><span><i class="sw ghost"></i>Last month</span></div>`;
-  return chartFigure('💰 Spending by category', `<svg viewBox="0 0 ${W} ${H}" class="plot" role="img" aria-label="Spending by category, this month compared with last month">${rows}</svg>`, 'Tap a category for both months', head);
+  return chartFigure('🧾 Spending by category', `<svg viewBox="0 0 ${W} ${H}" class="plot" role="img" aria-label="Spending by category, this month compared with last month">${rows}</svg>`, 'Tap a category for both months', head);
 }
 
 // ---------- weekly bars (work hours, tasks done) ----------
@@ -191,7 +191,7 @@ function insightsView() {
   ${sleepMoodInsight(days)}
   ${moodChart(days)}
   ${sleepChart(days)}
-  <h2 class="sec">💰 Money</h2>
+  <h2 class="sec">🧾 Expenses</h2>
   ${spendingChart()}
   ${weeklyBars('✅ Tasks completed per week', tasksPerWeek, v => Math.round(v), '') ? `<h2 class="sec">✅ Tasks & work</h2>` : ''}
   ${weeklyBars('✅ Tasks completed per week', tasksPerWeek, v => Math.round(v), '')}

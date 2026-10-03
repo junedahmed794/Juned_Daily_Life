@@ -370,7 +370,7 @@ const Shop = (() => {
       <p class="meta">${bought.length} item${bought.length === 1 ? '' : 's'} bought. They'll be cleared from the list and the trip saved.</p>
       <label class="lbl">Total spent (${esc(currencySymbol())})<input name="total" inputmode="decimal" value="${total ? total.toFixed(2) : ''}" placeholder="0.00"></label>
       <label class="lbl">Store<select name="store">${options([['', '—'], ...doc.stores.map(s => [s, s])], ui.store || (doc.shopping && doc.shopping.store) || '')}</select></label>
-      ${cfg.onLogMoney ? '<label class="toggle" style="margin-top:14px"><input type="checkbox" name="log" checked><span>💰 Log to Money as Groceries</span></label>' : ''}
+      ${cfg.onLogMoney ? '<label class="toggle" style="margin-top:14px"><input type="checkbox" name="log" checked><span>🧾 Log to Expense as Groceries</span></label>' : ''}
       <div class="btns end" style="margin-top:18px"><button type="button" class="btn" data-shop="close">Cancel</button><button class="btn primary">Finish</button></div>
     </form>`);
   }
@@ -475,7 +475,7 @@ const Shop = (() => {
       ui.mode = 'list'; saveUI(); keepAwake(false);
       op({ op: 'finish', total, totalText: total ? money(total) : '', store }, () => { doc.items = doc.items.filter(i => !i.done); });
       if (log && total && cfg.onLogMoney) cfg.onLogMoney(total, store, count);
-      cfg.onMessage(`Trip saved${total ? ` · ${money(total)}` : ''}${log && total ? ' · logged to Money' : ''} ✅`);
+      cfg.onMessage(`Trip saved${total ? ` · ${money(total)}` : ''}${log && total ? ' · logged to Expense' : ''} ✅`);
     } else if (f.matches('[data-shop-settings]')) {
       e.preventDefault();
       const stores = f.stores.value.split('\n').map(s => s.trim()).filter(Boolean);

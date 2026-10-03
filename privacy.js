@@ -12,7 +12,7 @@
    ========================================================= */
 
 const Privacy = (() => {
-  const AUTO = { tab: 'When I leave Money or the app', 1: 'After 1 minute away', 5: 'After 5 minutes away' };
+  const AUTO = { tab: 'When I leave Expense or the app', 1: 'After 1 minute away', 5: 'After 5 minutes away' };
   let unlockedAt = 0, awayAt = 0, fails = 0, waitUntil = 0, dlg = null, setup = null;
 
   const cfg = () => state.settings.privacy;
@@ -72,7 +72,7 @@ const Privacy = (() => {
       const cred = await navigator.credentials.create({ publicKey: {
         challenge: crypto.getRandomValues(new Uint8Array(32)),
         rp: { name: 'Juned Daily' },
-        user: { id: crypto.getRandomValues(new Uint8Array(16)), name: 'Money lock', displayName: 'Money lock' },
+        user: { id: crypto.getRandomValues(new Uint8Array(16)), name: 'Expense lock', displayName: 'Expense lock' },
         pubKeyCredParams: [{ type: 'public-key', alg: -7 }, { type: 'public-key', alg: -257 }],
         authenticatorSelection: { authenticatorAttachment: 'platform', userVerification: 'required', residentKey: 'preferred' },
         timeout: 60000, attestation: 'none',
@@ -123,7 +123,7 @@ const Privacy = (() => {
     sheet(`<form class="sheet center" data-privacy="unlock">
       <div class="lock-icon">🔒</div>
       <h2>Enter your PIN</h2>
-      <p class="meta">${esc(reason || 'To see your money')}</p>
+      <p class="meta">${esc(reason || 'To see your expenses')}</p>
       ${pinInput()}
       <p class="meta overdue pin-msg" aria-live="polite"></p>
       <div class="btns end"><button type="button" class="btn" data-privacy-close>Cancel</button><button class="btn primary">Unlock</button></div>
@@ -147,7 +147,7 @@ const Privacy = (() => {
     sheet(`<div class="sheet center">
       <div class="lock-icon">😀</div>
       <h2>Use Face ID too?</h2>
-      <p class="meta">Unlock Money with a glance. Your iPhone may ask to save a passkey called “Money lock” — that’s it.</p>
+      <p class="meta">Unlock Expense with a glance. Your iPhone may ask to save a passkey called “Expense lock” — that’s it.</p>
       <div class="btns end" style="margin-top:14px"><button type="button" class="btn" data-privacy-act="face-skip">Not now</button>
         <button type="button" class="btn primary" data-privacy-act="face-add">Use Face ID</button></div>
     </div>`);
@@ -158,15 +158,15 @@ const Privacy = (() => {
     if (cfg().blur === undefined || setup === 'enable') cfg().blur = true;   // hide amounts too when the lock is first turned on
     save(); setup = null; unlockedAt = Date.now(); awayAt = 0;
     closeSheet(); refreshSettings(); render();
-    toast(face ? '🔒 Money locked with Face ID + PIN' : '🔒 Money locked with your PIN');
+    toast(face ? '🔒 Expense locked with Face ID + PIN' : '🔒 Expense locked with your PIN');
   }
 
   // ---------- settings ----------
   function settingsHtml() {
     const p = cfg();
-    return `<h3>🔒 Money privacy</h3>
+    return `<h3>🔒 Expense privacy</h3>
     <label class="toggle"><input type="checkbox" data-privacy-toggle="lock" ${p.lock ? 'checked' : ''}>
-      <span><b>Lock the Money tab</b><small>${p.lock ? (p.credId ? 'Face ID, with your PIN as backup' : 'With your PIN') : 'Face ID or a PIN to open Money'}</small></span></label>
+      <span><b>Lock the Expense tab</b><small>${p.lock ? (p.credId ? 'Face ID, with your PIN as backup' : 'With your PIN') : 'Face ID or a PIN to open Expense'}</small></span></label>
     <label class="toggle" style="margin-top:8px"><input type="checkbox" data-privacy-toggle="blur" ${p.blur ? 'checked' : ''}>
       <span><b>Hide amounts on Today & Insights</b><small>Shows ••••• until you unlock</small></span></label>
     ${p.lock ? `<label class="lbl">Lock again
@@ -179,7 +179,7 @@ const Privacy = (() => {
     const p = cfg();
     return `<div class="card lock-card center">
       <div class="lock-icon">🔒</div>
-      <h2>Money is locked</h2>
+      <h2>Expense is locked</h2>
       <p class="meta">Your spending is private.</p>
       ${p.credId ? '<button type="button" class="btn primary block" data-privacy-act="unlock-face">😀 Unlock with Face ID</button>' : ''}
       <form data-privacy="unlock" class="pin-form">${pinInput()}<button class="btn ${p.credId ? '' : 'primary'}">Unlock with PIN</button></form>
@@ -255,7 +255,7 @@ const Privacy = (() => {
         t.checked = true;   // only turn off after unlocking
         askCurrent(() => {
           Object.assign(cfg(), { lock: false, pinHash: '', pinSalt: '', pinLen: 0, credId: '' });
-          save(); refreshSettings(); render(); toast('🔓 Money lock turned off');
+          save(); refreshSettings(); render(); toast('🔓 Expense lock turned off');
         });
       }
     } else if (t.dataset.privacyToggle === 'blur') {

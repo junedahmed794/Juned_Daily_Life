@@ -5,7 +5,7 @@ Tasks, habits, money and journal in one app.
 - **Today**: your day at a glance: today's tasks, habit check-ins, mood, and quick expense logging
 - **Tasks**: one-time to-dos with due dates, plus routines that repeat daily or weekly
 - **Habits**: daily check-offs with streaks and a 7-day history
-- **Money**: expenses and income with categories, monthly totals and a breakdown by category
+- **Expense**: spending with categories, monthly totals and a breakdown by category (income optional)
 - **Journal**: mood, sleep, energy and notes for each day, saved as you type
 
 It's plain HTML, CSS and JavaScript, with no build step and no dependencies. It works offline and can be installed to your home screen.
